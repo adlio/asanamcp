@@ -78,3 +78,7 @@ pub const CUSTOM_FIELD_SETTINGS_FIELDS: &str = "gid,custom_field,custom_field.gi
 /// Fields to request for search results.
 pub const SEARCH_FIELDS: &str = "gid,name,completed,assignee,assignee.name,\
     due_on,start_on,projects,projects.name,tags,tags.name,permalink_url";
+
+/// Fields to request for project briefs (notes).
+pub const PROJECT_BRIEF_FIELDS: &str =
+    "gid,title,text,html_text,permalink_url,project,project.name";

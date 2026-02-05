@@ -34,9 +34,14 @@ pub fn dump_schemas(filter: Option<&str>) {
             schema: serde_json::to_value(schema_for!(LinkParams)).unwrap(),
         },
         ToolSchema {
-            name: "asana_search",
-            description: "Search for tasks in a workspace",
-            schema: serde_json::to_value(schema_for!(SearchParams)).unwrap(),
+            name: "asana_task_search",
+            description: "Search for tasks with rich filtering",
+            schema: serde_json::to_value(schema_for!(TaskSearchParams)).unwrap(),
+        },
+        ToolSchema {
+            name: "asana_resource_search",
+            description: "Search for resources by name (projects, templates, users, etc.)",
+            schema: serde_json::to_value(schema_for!(ResourceSearchParams)).unwrap(),
         },
         ToolSchema {
             name: "asana_workspaces",
@@ -61,7 +66,7 @@ pub fn dump_schemas(filter: Option<&str>) {
 
     if filtered.is_empty() {
         eprintln!("No matching tools found for filter: {:?}", filter);
-        eprintln!("Available tools: asana_get, asana_create, asana_update, asana_link, asana_search, asana_workspaces");
+        eprintln!("Available tools: asana_get, asana_create, asana_update, asana_link, asana_task_search, asana_resource_search, asana_workspaces");
         std::process::exit(1);
     }
 

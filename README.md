@@ -81,7 +81,8 @@ The MCP Inspector (`make inspect`) opens a browser-based UI where you can see al
 | `asana_create` | Create resources (tasks, comments, projects, etc.) |
 | `asana_update` | Update existing resources |
 | `asana_link` | Manage relationships (task↔project, dependencies, etc.) |
-| `asana_search` | Search for tasks with filters |
+| `asana_task_search` | Search for tasks with rich filters (assignee, due date, etc.) |
+| `asana_resource_search` | Search for resources by name (projects, templates, users, teams, etc.) |
 
 ### asana_get
 
@@ -99,7 +100,7 @@ Fetch any Asana resource with recursive traversal support.
 | `my_tasks` | workspace GID* | Tasks assigned to current user |
 | `workspace_favorites` | workspace GID* | `depth` for portfolio traversal |
 | `workspace_projects` | workspace GID* | All projects in workspace |
-| `workspace_templates` | workspace GID* | |
+| `workspace_templates` | team GID (optional) | Empty = all accessible templates |
 | `workspace_tags` | workspace GID* | |
 | `workspace_users` | workspace GID* | |
 | `workspace_teams` | workspace GID* | |
@@ -117,6 +118,7 @@ Fetch any Asana resource with recursive traversal support.
 | `team` | team GID | |
 | `team_users` | team GID | |
 | `project_custom_fields` | project GID | |
+| `project_brief` | project GID | Project brief/note (a.k.a. "note" in UI) |
 
 *Uses `ASANA_DEFAULT_WORKSPACE` if gid is empty.
 
@@ -141,6 +143,7 @@ Depth: `-1` = unlimited, `0` = none, `N` = N levels.
 | `tag` | `workspace_gid`*, `name` |
 | `project_duplicate` | `source_gid`, `name` |
 | `task_duplicate` | `source_gid`, `name` |
+| `project_brief` | `project_gid`, `text` or `html_text` | a.k.a. "note" in UI |
 
 *Uses `ASANA_DEFAULT_WORKSPACE` if not provided.
 
@@ -150,7 +153,7 @@ Depth: `-1` = unlimited, `0` = none, `N` = N levels.
 {"resource_type": "task", "gid": "123", "completed": true}
 ```
 
-Supports: `task`, `project`, `portfolio`, `section`, `tag`, `comment`, `status_update`.
+Supports: `task`, `project`, `portfolio`, `section`, `tag`, `comment`, `status_update`, `project_brief` (a.k.a. "note" in UI).
 
 ### asana_link
 
@@ -173,7 +176,9 @@ Supports: `task`, `project`, `portfolio`, `section`, `tag`, `comment`, `status_u
 
 Use `item_gid` for single items or `item_gids` for bulk operations.
 
-### asana_search
+### asana_task_search
+
+Search for tasks with rich filtering options.
 
 ```json
 {"workspace_gid": "123", "text": "bug", "completed": false, "assignee": "me"}
@@ -191,6 +196,21 @@ Use `item_gid` for single items or `item_gids` for bulk operations.
 | `due_on`, `due_on_before`, `due_on_after` | Date filters (YYYY-MM-DD) |
 | `sort_by` | `due_date`, `created_at`, `completed_at`, `likes`, `modified_at` |
 | `sort_ascending` | `true` or `false` |
+
+### asana_resource_search
+
+Search for any Asana resource by name using typeahead. Use this to find projects, templates, users, teams, and more.
+
+```json
+{"query": "CloudSmith", "resource_type": "project_template"}
+```
+
+| Parameter | Description |
+|-----------|-------------|
+| `query` | Search text (required) |
+| `resource_type` | `project`, `project_template`, `portfolio`, `user`, `team`, `tag`, or `goal` |
+| `workspace_gid` | Workspace to search (uses default if not provided) |
+| `count` | Max results (default 20, max 100) |
 
 ## Library Usage
 

@@ -50,7 +50,7 @@ pub enum ResourceType {
     AllWorkspaces,
     /// Get a single workspace by GID
     Workspace,
-    /// List templates in a workspace (gid = workspace GID)
+    /// List project templates (gid = team GID for team templates, or empty for all accessible)
     #[serde(rename = "workspace_templates", alias = "project_templates")]
     WorkspaceTemplates,
     /// Get a single project template by GID
@@ -89,6 +89,9 @@ pub enum ResourceType {
     /// Get custom field settings for a project (gid = project GID)
     #[serde(rename = "project_custom_fields", alias = "custom_fields")]
     ProjectCustomFields,
+    /// Get project brief/note (gid = project GID). Also known as "note" in the Asana UI.
+    #[serde(rename = "project_brief", alias = "note")]
+    ProjectBrief,
 }
 
 /// Parameters for the universal get tool.
@@ -151,6 +154,9 @@ pub enum CreateResourceType {
     /// Duplicate an existing task
     #[serde(rename = "task_duplicate")]
     TaskDuplicate,
+    /// Create a project brief/note (also known as "note" in the Asana UI)
+    #[serde(rename = "project_brief", alias = "note")]
+    ProjectBrief,
 }
 
 /// Date variable for template instantiation.
@@ -233,9 +239,12 @@ pub struct CreateParams {
     /// Title (for status_update)
     #[serde(default)]
     pub title: Option<String>,
-    /// Text content (for comment, status_update)
+    /// Text content (for comment, status_update, project_brief)
     #[serde(default)]
     pub text: Option<String>,
+    /// HTML text content (for project_brief only - use html_notes for tasks/projects)
+    #[serde(default)]
+    pub html_text: Option<String>,
     /// Custom field values as {field_gid: value}
     #[serde(default)]
     pub custom_fields: Option<HashMap<String, serde_json::Value>>,
@@ -253,9 +262,9 @@ pub struct CreateParams {
     pub opt_fields: Option<Vec<String>>,
 }
 
-/// Parameters for task search.
+/// Parameters for task search (rich filtering for tasks only).
 #[derive(Debug, Deserialize, JsonSchema)]
-pub struct SearchParams {
+pub struct TaskSearchParams {
     /// Workspace GID to search in (uses ASANA_DEFAULT_WORKSPACE if not provided)
     #[serde(default)]
     pub workspace_gid: Option<String>,
@@ -316,6 +325,57 @@ pub struct SearchParams {
     pub opt_fields: Option<Vec<String>>,
 }
 
+/// Resource types that can be searched via typeahead.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum SearchableResourceType {
+    /// Search for projects
+    Project,
+    /// Search for project templates
+    #[serde(rename = "project_template")]
+    ProjectTemplate,
+    /// Search for portfolios
+    Portfolio,
+    /// Search for users/people
+    User,
+    /// Search for teams
+    Team,
+    /// Search for tags
+    Tag,
+    /// Search for goals
+    Goal,
+}
+
+impl SearchableResourceType {
+    /// Get the API string for this resource type.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Project => "project",
+            Self::ProjectTemplate => "project_template",
+            Self::Portfolio => "portfolio",
+            Self::User => "user",
+            Self::Team => "team",
+            Self::Tag => "tag",
+            Self::Goal => "goal",
+        }
+    }
+}
+
+/// Parameters for resource search (typeahead-based search across resource types).
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct ResourceSearchParams {
+    /// The search query (searches resource names)
+    pub query: Option<String>,
+    /// The type of resource to search for
+    pub resource_type: SearchableResourceType,
+    /// Workspace GID to search in (uses ASANA_DEFAULT_WORKSPACE if not provided)
+    #[serde(default)]
+    pub workspace_gid: Option<String>,
+    /// Maximum number of results to return (default 20, max 100)
+    #[serde(default)]
+    pub count: Option<u32>,
+}
+
 /// The type of resource to update.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
@@ -335,6 +395,9 @@ pub enum UpdateResourceType {
     /// Update a status update
     #[serde(rename = "status_update")]
     StatusUpdate,
+    /// Update a project brief/note (also known as "note" in the Asana UI)
+    #[serde(rename = "project_brief", alias = "note")]
+    ProjectBrief,
 }
 
 /// Parameters for the update tool.
@@ -377,9 +440,12 @@ pub struct UpdateParams {
     /// Make public/private
     #[serde(default)]
     pub public: Option<bool>,
-    /// New text content (for comment, status_update)
+    /// New text content (for comment, status_update, project_brief)
     #[serde(default)]
     pub text: Option<String>,
+    /// New HTML text content (for project_brief only - use html_notes for tasks/projects)
+    #[serde(default)]
+    pub html_text: Option<String>,
     /// New title (for status_update)
     #[serde(default)]
     pub title: Option<String>,

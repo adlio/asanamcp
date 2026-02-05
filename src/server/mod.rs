@@ -57,6 +57,13 @@ impl AsanaServer {
         }
     }
 
+    /// Set the default workspace GID (for testing).
+    #[cfg(test)]
+    pub(crate) fn with_default_workspace(mut self, workspace_gid: &str) -> Self {
+        self.default_workspace_gid = Some(workspace_gid.to_string());
+        self
+    }
+
     /// Resolve workspace GID from provided value or default.
     fn resolve_workspace_gid(&self, provided: Option<&str>) -> Result<String, McpError> {
         match provided.filter(|s| !s.is_empty()) {
@@ -98,7 +105,7 @@ impl AsanaServer {
             - project_status_updates: Get status history (gid = project/portfolio GID)\n\
             - all_workspaces: List all workspaces (gid is ignored)\n\
             - workspace: Get a single workspace (gid = workspace GID)\n\
-            - workspace_templates: List templates (gid = workspace GID or empty for default)\n\
+            - workspace_templates: List templates (gid = team GID for team templates, or empty for all)\n\
             - project_template: Get a single template (gid = template GID)\n\
             - project_sections: List sections in a project (gid = project GID)\n\
             - section: Get a single section (gid = section GID)\n\
@@ -110,7 +117,8 @@ impl AsanaServer {
             - team: Get a team (gid = team GID)\n\
             - workspace_teams: List teams (gid = workspace GID or empty for default)\n\
             - team_users: List users in a team (gid = team GID)\n\
-            - project_custom_fields: Get custom fields for a project (gid = project GID)\n\n\
+            - project_custom_fields: Get custom fields for a project (gid = project GID)\n\
+            - project_brief: Get project brief/note (gid = project GID). Also known as 'note' in the Asana UI.\n\n\
             For workspace-based operations, empty gid uses ASANA_DEFAULT_WORKSPACE env var.\n\
             Depth parameters: -1 = unlimited, 0 = none, N = N levels\n\n\
             opt_fields: Override default fields returned. Curated defaults provided per resource type.")]
@@ -313,16 +321,26 @@ impl AsanaServer {
             }
 
             ResourceType::WorkspaceTemplates => {
-                let workspace_gid = self.resolve_workspace_gid(p.gid.as_deref())?;
+                // Note: Asana's API uses /project_templates (not workspace-scoped)
+                // If team_gid is provided via gid, use team endpoint; otherwise list all
                 let fields = resolve_opt_fields(&p.opt_fields, TEMPLATE_FIELDS);
-                let templates: Vec<Resource> = self
-                    .client
-                    .get_all(
-                        &format!("/workspaces/{}/project_templates", workspace_gid),
-                        &[("opt_fields", &fields)],
-                    )
-                    .await
-                    .map_err(|e| error_to_mcp("Failed to list project templates", e))?;
+                let templates: Vec<Resource> =
+                    if let Some(team_gid) = p.gid.as_ref().filter(|s| !s.is_empty()) {
+                        // Treat gid as team_gid for team-scoped templates
+                        self.client
+                            .get_all(
+                                &format!("/teams/{}/project_templates", team_gid),
+                                &[("opt_fields", &fields)],
+                            )
+                            .await
+                            .map_err(|e| error_to_mcp("Failed to list team project templates", e))?
+                    } else {
+                        // List all accessible templates
+                        self.client
+                            .get_all("/project_templates", &[("opt_fields", &fields)])
+                            .await
+                            .map_err(|e| error_to_mcp("Failed to list project templates", e))?
+                    };
                 json_response(&templates)
             }
 
@@ -513,6 +531,20 @@ impl AsanaServer {
                     .map_err(|e| error_to_mcp("Failed to get custom field settings", e))?;
                 json_response(&settings)
             }
+
+            ResourceType::ProjectBrief => {
+                let gid = require_gid(&p.gid, "project_brief (project GID)")?;
+                let fields = resolve_opt_fields(&p.opt_fields, PROJECT_BRIEF_FIELDS);
+                let brief: Resource = self
+                    .client
+                    .get(
+                        &format!("/projects/{}/project_brief", gid),
+                        &[("opt_fields", &fields)],
+                    )
+                    .await
+                    .map_err(|e| error_to_mcp("Failed to get project brief", e))?;
+                json_response(&brief)
+            }
         }
     }
 
@@ -528,7 +560,8 @@ impl AsanaServer {
             - status_update: Create a status update (parent_gid = project/portfolio)\n\
             - tag: Create a tag (uses default workspace if workspace_gid not provided)\n\
             - project_duplicate: Duplicate a project (source_gid, name required; include[] for options)\n\
-            - task_duplicate: Duplicate a task (source_gid, name required; include[] for options)\n\n\
+            - task_duplicate: Duplicate a task (source_gid, name required; include[] for options)\n\
+            - project_brief: Create a project brief/note (project_gid required, text or html_text). Also known as 'note' in the Asana UI.\n\n\
             workspace_gid uses ASANA_DEFAULT_WORKSPACE env var if not provided.")]
     async fn asana_create(
         &self,
@@ -845,6 +878,34 @@ impl AsanaServer {
                     .map_err(|e| error_to_mcp("Failed to duplicate task", e))?;
                 json_response(&task)
             }
+
+            CreateResourceType::ProjectBrief => {
+                let project_gid = p
+                    .project_gid
+                    .ok_or_else(|| validation_error("project_gid is required for project_brief"))?;
+
+                let mut data = serde_json::Map::new();
+                if let Some(text) = p.text {
+                    data.insert("text".to_string(), serde_json::json!(text));
+                }
+                if let Some(html_text) = p.html_text {
+                    data.insert("html_text".to_string(), serde_json::json!(html_text));
+                }
+
+                if data.is_empty() {
+                    return Err(validation_error(
+                        "text or html_text is required for project_brief",
+                    ));
+                }
+
+                let body = serde_json::json!({"data": data});
+                let brief: Resource = self
+                    .client
+                    .post(&format!("/projects/{}/project_brief", project_gid), &body)
+                    .await
+                    .map_err(|e| error_to_mcp("Failed to create project brief", e))?;
+                json_response(&brief)
+            }
         }
     }
 
@@ -859,7 +920,8 @@ impl AsanaServer {
             - section: name (required)\n\
             - tag: name, color, notes\n\
             - comment: text (required)\n\
-            - status_update: title, text, html_notes, status_type (on_track/at_risk/off_track)"
+            - status_update: title, text, html_notes, status_type (on_track/at_risk/off_track)\n\
+            - project_brief: text, html_text (a.k.a. 'note' in the Asana UI)"
     )]
     async fn asana_update(
         &self,
@@ -1040,6 +1102,30 @@ impl AsanaServer {
                     .await
                     .map_err(|e| error_to_mcp("Failed to update status update", e))?;
                 json_response(&status)
+            }
+
+            UpdateResourceType::ProjectBrief => {
+                let mut data = serde_json::Map::new();
+                if let Some(text) = p.text {
+                    data.insert("text".to_string(), serde_json::json!(text));
+                }
+                if let Some(html_text) = p.html_text {
+                    data.insert("html_text".to_string(), serde_json::json!(html_text));
+                }
+
+                if data.is_empty() {
+                    return Err(validation_error(
+                        "text or html_text is required for project_brief update",
+                    ));
+                }
+
+                let body = serde_json::json!({"data": data});
+                let brief: Resource = self
+                    .client
+                    .put(&format!("/project_briefs/{}", p.gid), &body)
+                    .await
+                    .map_err(|e| error_to_mcp("Failed to update project brief", e))?;
+                json_response(&brief)
             }
         }
     }
@@ -1306,12 +1392,13 @@ impl AsanaServer {
         }
     }
 
-    /// Search for tasks in a workspace.
-    #[tool(description = "Search for tasks in a workspace with filters.\n\
+    /// Search for tasks in a workspace with rich filtering.
+    #[tool(
+        description = "Search for tasks in a workspace with filters. For searching other resource types (projects, templates, users, etc.), use asana_resource_search instead.\n\
             \n\
             workspace_gid: Uses ASANA_DEFAULT_WORKSPACE env var if not provided\n\
             \n\
-            Filters (all optional):\n\
+            Filters (all optional, but at least one recommended):\n\
             - text: Search in task name and notes\n\
             - assignee: User GID, 'me' for current user, or 'null' for unassigned\n\
             - projects: Filter by project GID(s)\n\
@@ -1324,10 +1411,11 @@ impl AsanaServer {
             - portfolios: Filter by portfolio GID(s)\n\
             - sort_by: due_date, created_at, completed_at, likes, modified_at\n\
             - sort_ascending: true/false\n\n\
-            opt_fields: Override default fields returned. Curated defaults provided.")]
-    async fn asana_search(
+            opt_fields: Override default fields returned. Curated defaults provided."
+    )]
+    async fn asana_task_search(
         &self,
-        params: Parameters<SearchParams>,
+        params: Parameters<TaskSearchParams>,
     ) -> Result<CallToolResult, McpError> {
         let p = params.0;
         let workspace_gid = self.resolve_workspace_gid(p.workspace_gid.as_deref())?;
@@ -1410,6 +1498,46 @@ impl AsanaServer {
             .map_err(|e| error_to_mcp("Failed to search tasks", e))?;
 
         json_response(&tasks)
+    }
+
+    /// Search for any Asana resource by name using typeahead.
+    #[tool(
+        description = "Search for Asana resources by name. Use this to find projects, templates, users, teams, portfolios, goals, or tags by name. For task-specific searching with filters (assignee, due date, completion status), use asana_task_search instead.\n\
+            \n\
+            Parameters:\n\
+            - query: The search text (searches resource names)\n\
+            - resource_type: Type to search for - project, project_template, portfolio, user, team, tag, or goal\n\
+            - workspace_gid: Uses ASANA_DEFAULT_WORKSPACE env var if not provided\n\
+            - count: Max results to return (default 20, max 100)"
+    )]
+    async fn asana_resource_search(
+        &self,
+        params: Parameters<ResourceSearchParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let p = params.0;
+        let workspace_gid = self.resolve_workspace_gid(p.workspace_gid.as_deref())?;
+
+        let query = p
+            .query
+            .ok_or_else(|| validation_error("query is required"))?;
+        let resource_type = p.resource_type.as_str();
+        let count = p.count.unwrap_or(20).min(100).to_string();
+
+        let results: Vec<Resource> = self
+            .client
+            .get_all(
+                &format!("/workspaces/{}/typeahead", workspace_gid),
+                &[
+                    ("query", query.as_str()),
+                    ("resource_type", resource_type),
+                    ("count", &count),
+                    ("opt_fields", "gid,name,resource_type"),
+                ],
+            )
+            .await
+            .map_err(|e| error_to_mcp("Failed to search resources", e))?;
+
+        json_response(&results)
     }
 }
 
