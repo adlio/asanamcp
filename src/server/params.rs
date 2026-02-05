@@ -248,8 +248,9 @@ pub struct CreateParams {
 /// Parameters for task search.
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct SearchParams {
-    /// Workspace GID to search in (required)
-    pub workspace_gid: String,
+    /// Workspace GID to search in (uses ASANA_DEFAULT_WORKSPACE if not provided)
+    #[serde(default)]
+    pub workspace_gid: Option<String>,
     /// Search for tasks containing this text in name or notes
     #[serde(default)]
     pub text: Option<String>,

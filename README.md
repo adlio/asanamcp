@@ -17,12 +17,15 @@ MCP server for the Asana API.
     "asana": {
       "command": "asanamcp",
       "env": {
-        "ASANA_TOKEN": "your-personal-access-token"
+        "ASANA_TOKEN": "your-personal-access-token",
+        "ASANA_DEFAULT_WORKSPACE": "your-workspace-gid"
       }
     }
   }
 }
 ```
+
+The `ASANA_DEFAULT_WORKSPACE` is optional but recommended if you work primarily in one workspace. When set, workspace-based operations (search, list projects, list users, etc.) will use this default, reducing the need to specify workspace GID in every request.
 
 3. Install:
 
@@ -48,6 +51,7 @@ make install
 | `asana_create` | Create resources (tasks, comments, projects, etc.) |
 | `asana_update` | Update existing resources |
 | `asana_link` | Manage relationships (task↔project, dependencies, etc.) |
+| `asana_search` | Search for tasks with filters |
 
 ### asana_get
 
@@ -62,20 +66,29 @@ Fetch any Asana resource with recursive traversal support.
 | `project` | project GID | |
 | `portfolio` | portfolio GID | `depth`: traversal depth |
 | `task` | task GID | `include_subtasks`, `include_dependencies`, `include_comments` |
-| `my_tasks` | workspace GID | Tasks assigned to current user |
-| `workspace_favorites` | workspace GID | `include_projects`, `include_portfolios` |
-| `workspace_projects` | workspace GID | All projects in workspace |
+| `my_tasks` | workspace GID* | Tasks assigned to current user |
+| `workspace_favorites` | workspace GID* | `include_projects`, `include_portfolios` |
+| `workspace_projects` | workspace GID* | All projects in workspace |
+| `workspace_templates` | workspace GID* | |
+| `workspace_tags` | workspace GID* | |
+| `workspace_users` | workspace GID* | |
+| `workspace_teams` | workspace GID* | |
 | `project_tasks` | project/portfolio GID | `subtask_depth` |
 | `task_subtasks` | task GID | |
 | `task_comments` | task GID | |
 | `project_status_updates` | project/portfolio GID | |
 | `workspace` | workspace GID | |
-| `workspace_templates` | workspace GID | |
 | `project_template` | template GID | |
 | `project_sections` | project GID | |
 | `section` | section GID | |
-| `workspace_tags` | workspace GID | |
 | `tag` | tag GID | |
+| `me` | (ignored) | Current authenticated user |
+| `user` | user GID | |
+| `team` | team GID | |
+| `team_users` | team GID | |
+| `project_custom_fields` | project GID | |
+
+*Uses `ASANA_DEFAULT_WORKSPACE` if gid is empty.
 
 Depth: `-1` = unlimited, `0` = none, `N` = N levels.
 
@@ -87,15 +100,19 @@ Depth: `-1` = unlimited, `0` = none, `N` = N levels.
 
 | resource_type | Required fields |
 |---------------|-----------------|
-| `task` | `workspace_gid` or `project_gid`, `name` |
+| `task` | `project_gid` or `workspace_gid`*, `name` |
 | `subtask` | `task_gid`, `name` |
 | `project` | `workspace_gid` or `team_gid`, `name` |
 | `project_from_template` | `template_gid`, `name` |
-| `portfolio` | `workspace_gid`, `name` |
+| `portfolio` | `workspace_gid`*, `name` |
 | `section` | `project_gid`, `name` |
 | `comment` | `task_gid`, `text` |
 | `status_update` | `parent_gid`, `status_type`, `text` |
-| `tag` | `workspace_gid`, `name` |
+| `tag` | `workspace_gid`*, `name` |
+| `project_duplicate` | `source_gid`, `name` |
+| `task_duplicate` | `source_gid`, `name` |
+
+*Uses `ASANA_DEFAULT_WORKSPACE` if not provided.
 
 ### asana_update
 
@@ -125,6 +142,25 @@ Supports: `task`, `project`, `portfolio`, `section`, `tag`, `comment`, `status_u
 | `project_follower` | project GID | user GID(s) |
 
 Use `item_gid` for single items or `item_gids` for bulk operations.
+
+### asana_search
+
+```json
+{"workspace_gid": "123", "text": "bug", "completed": false, "assignee": "me"}
+```
+
+| Filter | Description |
+|--------|-------------|
+| `workspace_gid` | Workspace to search (uses default if not provided) |
+| `text` | Search in task name and notes |
+| `assignee` | User GID, `me`, or `null` for unassigned |
+| `projects` | Filter by project GID(s) |
+| `tags` | Filter by tag GID(s) |
+| `sections` | Filter by section GID(s) |
+| `completed` | `true` or `false` |
+| `due_on`, `due_on_before`, `due_on_after` | Date filters (YYYY-MM-DD) |
+| `sort_by` | `due_date`, `created_at`, `completed_at`, `likes`, `modified_at` |
+| `sort_ascending` | `true` or `false` |
 
 ## Library Usage
 

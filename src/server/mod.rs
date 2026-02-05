@@ -26,16 +26,23 @@ pub use params::*;
 #[derive(Debug, Clone)]
 pub struct AsanaServer {
     client: AsanaClient,
+    default_workspace_gid: Option<String>,
     tool_router: ToolRouter<AsanaServer>,
 }
 
 #[tool_router]
 impl AsanaServer {
     /// Create a new Asana MCP server.
+    ///
+    /// Reads configuration from environment variables:
+    /// - `ASANA_TOKEN` or `ASANA_ACCESS_TOKEN`: API token (required)
+    /// - `ASANA_DEFAULT_WORKSPACE`: Default workspace GID (optional)
     pub fn new() -> Result<Self, Error> {
         let client = AsanaClient::from_env()?;
+        let default_workspace_gid = std::env::var("ASANA_DEFAULT_WORKSPACE").ok();
         Ok(Self {
             client,
+            default_workspace_gid,
             tool_router: Self::tool_router(),
         })
     }
@@ -45,7 +52,20 @@ impl AsanaServer {
     pub(crate) fn with_client(client: AsanaClient) -> Self {
         Self {
             client,
+            default_workspace_gid: None,
             tool_router: Self::tool_router(),
+        }
+    }
+
+    /// Resolve workspace GID from provided value or default.
+    fn resolve_workspace_gid(&self, provided: Option<&str>) -> Result<String, McpError> {
+        match provided.filter(|s| !s.is_empty()) {
+            Some(gid) => Ok(gid.to_string()),
+            None => self.default_workspace_gid.clone().ok_or_else(|| {
+                validation_error(
+                    "workspace_gid is required (or set ASANA_DEFAULT_WORKSPACE env var)",
+                )
+            }),
         }
     }
 
@@ -69,28 +89,29 @@ impl AsanaServer {
             - project: Get a project (gid = project GID)\n\
             - portfolio: Get a portfolio with nested items (gid = portfolio GID, use depth to control recursion)\n\
             - task: Get a task with context (gid = task GID, use include_* flags)\n\
-            - my_tasks: Get tasks assigned to current user (gid = workspace GID)\n\
-            - workspace_favorites: Get user's favorites (gid = workspace GID)\n\
-            - workspace_projects: List all projects in workspace (gid = workspace GID)\n\
+            - my_tasks: Get tasks assigned to current user (gid = workspace GID or empty for default)\n\
+            - workspace_favorites: Get user's favorites (gid = workspace GID or empty for default)\n\
+            - workspace_projects: List all projects in workspace (gid = workspace GID or empty for default)\n\
             - project_tasks: Get all tasks from a project/portfolio (gid = project/portfolio GID, use subtask_depth)\n\
             - task_subtasks: Get subtasks of a task (gid = task GID)\n\
             - task_comments: Get comments on a task (gid = task GID)\n\
             - project_status_updates: Get status history (gid = project/portfolio GID)\n\
             - all_workspaces: List all workspaces (gid is ignored)\n\
             - workspace: Get a single workspace (gid = workspace GID)\n\
-            - workspace_templates: List templates in a workspace (gid = workspace GID)\n\
+            - workspace_templates: List templates (gid = workspace GID or empty for default)\n\
             - project_template: Get a single template (gid = template GID)\n\
             - project_sections: List sections in a project (gid = project GID)\n\
             - section: Get a single section (gid = section GID)\n\
-            - workspace_tags: List tags in a workspace (gid = workspace GID)\n\
+            - workspace_tags: List tags (gid = workspace GID or empty for default)\n\
             - tag: Get a single tag (gid = tag GID)\n\
             - me: Get current authenticated user (gid ignored)\n\
             - user: Get a user (gid = user GID)\n\
-            - workspace_users: List users in workspace (gid = workspace GID)\n\
+            - workspace_users: List users (gid = workspace GID or empty for default)\n\
             - team: Get a team (gid = team GID)\n\
-            - workspace_teams: List teams in workspace (gid = workspace GID)\n\
+            - workspace_teams: List teams (gid = workspace GID or empty for default)\n\
             - team_users: List users in a team (gid = team GID)\n\
             - project_custom_fields: Get custom fields for a project (gid = project GID)\n\n\
+            For workspace-based operations, empty gid uses ASANA_DEFAULT_WORKSPACE env var.\n\
             Depth parameters: -1 = unlimited, 0 = none, N = N levels")]
     async fn asana_get(&self, params: Parameters<GetParams>) -> Result<CallToolResult, McpError> {
         let p = params.0;
@@ -131,6 +152,7 @@ impl AsanaServer {
             }
 
             ResourceType::WorkspaceFavorites => {
+                let workspace_gid = self.resolve_workspace_gid(Some(&p.gid))?;
                 let depth = depth_to_option(p.depth.unwrap_or(0));
                 let include_projects = p.include_projects.unwrap_or(true);
                 let include_portfolios = p.include_portfolios.unwrap_or(true);
@@ -140,7 +162,7 @@ impl AsanaServer {
                     .get_all(
                         "/users/me/favorites",
                         &[
-                            ("workspace", p.gid.as_str()),
+                            ("workspace", workspace_gid.as_str()),
                             ("opt_fields", "gid,resource_type,name"),
                         ],
                     )
@@ -275,10 +297,11 @@ impl AsanaServer {
             }
 
             ResourceType::WorkspaceTemplates => {
+                let workspace_gid = self.resolve_workspace_gid(Some(&p.gid))?;
                 let templates: Vec<Resource> = self
                     .client
                     .get_all(
-                        &format!("/workspaces/{}/project_templates", p.gid),
+                        &format!("/workspaces/{}/project_templates", workspace_gid),
                         &[("opt_fields", TEMPLATE_FIELDS)],
                     )
                     .await
@@ -323,10 +346,11 @@ impl AsanaServer {
             }
 
             ResourceType::WorkspaceTags => {
+                let workspace_gid = self.resolve_workspace_gid(Some(&p.gid))?;
                 let tags: Vec<Resource> = self
                     .client
                     .get_all(
-                        &format!("/workspaces/{}/tags", p.gid),
+                        &format!("/workspaces/{}/tags", workspace_gid),
                         &[("opt_fields", TAG_FIELDS)],
                     )
                     .await
@@ -344,12 +368,13 @@ impl AsanaServer {
             }
 
             ResourceType::MyTasks => {
+                let workspace_gid = self.resolve_workspace_gid(Some(&p.gid))?;
                 // First get the user's task list for this workspace
                 let task_list: Resource = self
                     .client
                     .get(
                         "/users/me/user_task_list",
-                        &[("workspace", p.gid.as_str()), ("opt_fields", "gid")],
+                        &[("workspace", workspace_gid.as_str()), ("opt_fields", "gid")],
                     )
                     .await
                     .map_err(|e| error_to_mcp("Failed to get user task list", e))?;
@@ -367,10 +392,11 @@ impl AsanaServer {
             }
 
             ResourceType::WorkspaceProjects => {
+                let workspace_gid = self.resolve_workspace_gid(Some(&p.gid))?;
                 let projects: Vec<Resource> = self
                     .client
                     .get_all(
-                        &format!("/workspaces/{}/projects", p.gid),
+                        &format!("/workspaces/{}/projects", workspace_gid),
                         &[("opt_fields", PROJECT_FIELDS)],
                     )
                     .await
@@ -397,10 +423,11 @@ impl AsanaServer {
             }
 
             ResourceType::WorkspaceUsers => {
+                let workspace_gid = self.resolve_workspace_gid(Some(&p.gid))?;
                 let users: Vec<Resource> = self
                     .client
                     .get_all(
-                        &format!("/workspaces/{}/users", p.gid),
+                        &format!("/workspaces/{}/users", workspace_gid),
                         &[("opt_fields", USER_FIELDS)],
                     )
                     .await
@@ -418,10 +445,11 @@ impl AsanaServer {
             }
 
             ResourceType::WorkspaceTeams => {
+                let workspace_gid = self.resolve_workspace_gid(Some(&p.gid))?;
                 let teams: Vec<Resource> = self
                     .client
                     .get_all(
-                        &format!("/workspaces/{}/teams", p.gid),
+                        &format!("/workspaces/{}/teams", workspace_gid),
                         &[("opt_fields", TEAM_FIELDS)],
                     )
                     .await
@@ -457,17 +485,18 @@ impl AsanaServer {
 
     /// Create Asana resources.
     #[tool(description = "Create a new Asana resource. Supports:\n\
-            - task: Create a task (workspace_gid or project_gid required)\n\
+            - task: Create a task (workspace_gid or project_gid, uses default workspace if neither)\n\
             - subtask: Create a subtask (task_gid = parent task)\n\
             - project: Create a project (workspace_gid or team_gid required)\n\
             - project_from_template: Instantiate from template (template_gid required)\n\
-            - portfolio: Create a portfolio (workspace_gid required)\n\
+            - portfolio: Create a portfolio (uses default workspace if workspace_gid not provided)\n\
             - section: Create a section in a project (project_gid required)\n\
             - comment: Add a comment to a task (task_gid required)\n\
             - status_update: Create a status update (parent_gid = project/portfolio)\n\
-            - tag: Create a tag (workspace_gid required)\n\
+            - tag: Create a tag (uses default workspace if workspace_gid not provided)\n\
             - project_duplicate: Duplicate a project (source_gid, name required; include[] for options)\n\
-            - task_duplicate: Duplicate a task (source_gid, name required; include[] for options)")]
+            - task_duplicate: Duplicate a task (source_gid, name required; include[] for options)\n\n\
+            workspace_gid uses ASANA_DEFAULT_WORKSPACE env var if not provided.")]
     async fn asana_create(
         &self,
         params: Parameters<CreateParams>,
@@ -624,9 +653,7 @@ impl AsanaServer {
             }
 
             CreateResourceType::Portfolio => {
-                let workspace_gid = p
-                    .workspace_gid
-                    .ok_or_else(|| validation_error("workspace_gid is required for portfolio"))?;
+                let workspace_gid = self.resolve_workspace_gid(p.workspace_gid.as_deref())?;
                 let name = p
                     .name
                     .ok_or_else(|| validation_error("name is required for portfolio"))?;
@@ -713,9 +740,7 @@ impl AsanaServer {
             }
 
             CreateResourceType::Tag => {
-                let workspace_gid = p
-                    .workspace_gid
-                    .ok_or_else(|| validation_error("workspace_gid is required for tag"))?;
+                let workspace_gid = self.resolve_workspace_gid(p.workspace_gid.as_deref())?;
                 let name = p
                     .name
                     .ok_or_else(|| validation_error("name is required for tag"))?;
@@ -1251,7 +1276,7 @@ impl AsanaServer {
     /// Search for tasks in a workspace.
     #[tool(description = "Search for tasks in a workspace with filters.\n\
             \n\
-            Required: workspace_gid\n\
+            workspace_gid: Uses ASANA_DEFAULT_WORKSPACE env var if not provided\n\
             \n\
             Filters (all optional):\n\
             - text: Search in task name and notes\n\
@@ -1271,6 +1296,7 @@ impl AsanaServer {
         params: Parameters<SearchParams>,
     ) -> Result<CallToolResult, McpError> {
         let p = params.0;
+        let workspace_gid = self.resolve_workspace_gid(p.workspace_gid.as_deref())?;
 
         // Build query parameters
         let mut query_params: Vec<(String, String)> =
@@ -1343,7 +1369,7 @@ impl AsanaServer {
         let tasks: Vec<Resource> = self
             .client
             .get_all(
-                &format!("/workspaces/{}/tasks/search", p.workspace_gid),
+                &format!("/workspaces/{}/tasks/search", workspace_gid),
                 &query_refs,
             )
             .await

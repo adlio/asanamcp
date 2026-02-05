@@ -2576,7 +2576,7 @@ async fn test_search_basic() {
 
     let server = test_server(&mock_server.uri());
     let params = Parameters(SearchParams {
-        workspace_gid: "ws123".to_string(),
+        workspace_gid: Some("ws123".to_string()),
         text: Some("login".to_string()),
         assignee: None,
         projects: None,
@@ -2620,7 +2620,7 @@ async fn test_search_with_assignee_me() {
 
     let server = test_server(&mock_server.uri());
     let params = Parameters(SearchParams {
-        workspace_gid: "ws123".to_string(),
+        workspace_gid: Some("ws123".to_string()),
         assignee: Some("me".to_string()),
         text: None,
         projects: None,
@@ -2663,7 +2663,7 @@ async fn test_search_with_filters() {
 
     let server = test_server(&mock_server.uri());
     let params = Parameters(SearchParams {
-        workspace_gid: "ws123".to_string(),
+        workspace_gid: Some("ws123".to_string()),
         completed: Some(false),
         due_on_before: Some("2024-01-31".to_string()),
         due_on_after: Some("2024-01-01".to_string()),
@@ -2706,7 +2706,7 @@ async fn test_search_unassigned() {
 
     let server = test_server(&mock_server.uri());
     let params = Parameters(SearchParams {
-        workspace_gid: "ws123".to_string(),
+        workspace_gid: Some("ws123".to_string()),
         assignee: Some("null".to_string()), // Special value for unassigned
         text: None,
         projects: None,
