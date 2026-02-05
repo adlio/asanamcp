@@ -585,6 +585,8 @@ async fn test_create_task_success() {
         title: None,
         text: None,
         custom_fields: None,
+        source_gid: None,
+        include: None,
     });
 
     let result = server.asana_create(params).await.unwrap();
@@ -622,6 +624,8 @@ async fn test_create_subtask_requires_task_gid() {
         title: None,
         text: None,
         custom_fields: None,
+        source_gid: None,
+        include: None,
     });
 
     let result = server.asana_create(params).await;
@@ -669,6 +673,8 @@ async fn test_create_project_success() {
         title: None,
         text: None,
         custom_fields: None,
+        source_gid: None,
+        include: None,
     });
 
     let result = server.asana_create(params).await.unwrap();
@@ -720,6 +726,8 @@ async fn test_create_comment_success() {
         status_type: None,
         title: None,
         custom_fields: None,
+        source_gid: None,
+        include: None,
     });
 
     let result = server.asana_create(params).await.unwrap();
@@ -764,6 +772,8 @@ async fn test_update_task_success() {
         privacy_setting: None,
         public: None,
         text: None,
+        title: None,
+        status_type: None,
         custom_fields: None,
     });
 
@@ -794,6 +804,8 @@ async fn test_update_section_requires_name() {
         privacy_setting: None,
         public: None,
         text: None,
+        title: None,
+        status_type: None,
         custom_fields: None,
     });
 
@@ -1407,6 +1419,8 @@ async fn test_create_project_from_template() {
         title: None,
         text: None,
         custom_fields: None,
+        source_gid: None,
+        include: None,
     });
 
     let result = server.asana_create(params).await.unwrap();
@@ -1451,6 +1465,8 @@ async fn test_create_portfolio() {
         title: None,
         text: None,
         custom_fields: None,
+        source_gid: None,
+        include: None,
     });
 
     let result = server.asana_create(params).await.unwrap();
@@ -1495,6 +1511,8 @@ async fn test_create_section() {
         title: None,
         text: None,
         custom_fields: None,
+        source_gid: None,
+        include: None,
     });
 
     let result = server.asana_create(params).await.unwrap();
@@ -1544,6 +1562,8 @@ async fn test_create_status_update() {
         privacy_setting: None,
         public: None,
         custom_fields: None,
+        source_gid: None,
+        include: None,
     });
 
     let result = server.asana_create(params).await.unwrap();
@@ -1589,6 +1609,8 @@ async fn test_create_tag() {
         title: None,
         text: None,
         custom_fields: None,
+        source_gid: None,
+        include: None,
     });
 
     let result = server.asana_create(params).await.unwrap();
@@ -1629,6 +1651,8 @@ async fn test_update_project() {
         privacy_setting: None,
         public: None,
         text: None,
+        title: None,
+        status_type: None,
         custom_fields: None,
     });
 
@@ -1666,6 +1690,8 @@ async fn test_update_portfolio() {
         archived: None,
         privacy_setting: None,
         text: None,
+        title: None,
+        status_type: None,
         custom_fields: None,
     });
 
@@ -1703,6 +1729,8 @@ async fn test_update_tag() {
         privacy_setting: None,
         public: None,
         text: None,
+        title: None,
+        status_type: None,
         custom_fields: None,
     });
 
@@ -1740,6 +1768,8 @@ async fn test_update_comment() {
         archived: None,
         privacy_setting: None,
         public: None,
+        title: None,
+        status_type: None,
         custom_fields: None,
     });
 
@@ -1747,6 +1777,51 @@ async fn test_update_comment() {
     let text = get_response_text(&result);
 
     assert!(text.contains("Updated comment text"));
+}
+
+#[tokio::test]
+async fn test_update_status_update() {
+    let mock_server = MockServer::start().await;
+
+    Mock::given(method("PUT"))
+        .and(path("/status_updates/status123"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "data": {
+                "gid": "status123",
+                "title": "Week 2 Update",
+                "text": "Still on track",
+                "status_type": "on_track"
+            }
+        })))
+        .mount(&mock_server)
+        .await;
+
+    let server = test_server(&mock_server.uri());
+    let params = Parameters(UpdateParams {
+        resource_type: UpdateResourceType::StatusUpdate,
+        gid: "status123".to_string(),
+        title: Some("Week 2 Update".to_string()),
+        text: Some("Still on track".to_string()),
+        status_type: Some("on_track".to_string()),
+        name: None,
+        notes: None,
+        html_notes: None,
+        completed: None,
+        due_on: None,
+        start_on: None,
+        assignee: None,
+        color: None,
+        archived: None,
+        privacy_setting: None,
+        public: None,
+        custom_fields: None,
+    });
+
+    let result = server.asana_update(params).await.unwrap();
+    let text = get_response_text(&result);
+
+    assert!(text.contains("Week 2 Update"));
+    assert!(text.contains("on_track"));
 }
 
 // ============================================================================
@@ -2061,4 +2136,598 @@ async fn test_link_add_project_follower() {
     let text = get_response_text(&result);
 
     assert!(text.contains("Followers added to project"));
+}
+
+// ============================================================================
+// User Tests
+// ============================================================================
+
+#[tokio::test]
+async fn test_get_me() {
+    let mock_server = MockServer::start().await;
+
+    Mock::given(method("GET"))
+        .and(path("/users/me"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "data": {
+                "gid": "user123",
+                "name": "Test User",
+                "email": "test@example.com",
+                "photo": {"image_128x128": "https://example.com/photo.png"}
+            }
+        })))
+        .mount(&mock_server)
+        .await;
+
+    let server = test_server(&mock_server.uri());
+    // GID is ignored for Me resource type
+    let result = server
+        .asana_get(get_params(ResourceType::Me, "ignored"))
+        .await
+        .unwrap();
+    let text = get_response_text(&result);
+
+    assert!(text.contains("Test User"));
+    assert!(text.contains("test@example.com"));
+}
+
+#[tokio::test]
+async fn test_get_user() {
+    let mock_server = MockServer::start().await;
+
+    Mock::given(method("GET"))
+        .and(path("/users/user456"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "data": {
+                "gid": "user456",
+                "name": "Other User",
+                "email": "other@example.com"
+            }
+        })))
+        .mount(&mock_server)
+        .await;
+
+    let server = test_server(&mock_server.uri());
+    let result = server
+        .asana_get(get_params(ResourceType::User, "user456"))
+        .await
+        .unwrap();
+    let text = get_response_text(&result);
+
+    assert!(text.contains("Other User"));
+    assert!(text.contains("other@example.com"));
+}
+
+#[tokio::test]
+async fn test_get_workspace_users() {
+    let mock_server = MockServer::start().await;
+
+    Mock::given(method("GET"))
+        .and(path("/workspaces/ws123/users"))
+        .and(NoOffset)
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "data": [
+                {"gid": "user1", "name": "Alice", "email": "alice@example.com"},
+                {"gid": "user2", "name": "Bob", "email": "bob@example.com"}
+            ],
+            "next_page": null
+        })))
+        .mount(&mock_server)
+        .await;
+
+    let server = test_server(&mock_server.uri());
+    let result = server
+        .asana_get(get_params(ResourceType::WorkspaceUsers, "ws123"))
+        .await
+        .unwrap();
+    let text = get_response_text(&result);
+
+    assert!(text.contains("Alice"));
+    assert!(text.contains("Bob"));
+}
+
+// ============================================================================
+// Team Tests
+// ============================================================================
+
+#[tokio::test]
+async fn test_get_team() {
+    let mock_server = MockServer::start().await;
+
+    Mock::given(method("GET"))
+        .and(path("/teams/team123"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "data": {
+                "gid": "team123",
+                "name": "Engineering",
+                "description": "The engineering team",
+                "permalink_url": "https://app.asana.com/teams/team123"
+            }
+        })))
+        .mount(&mock_server)
+        .await;
+
+    let server = test_server(&mock_server.uri());
+    let result = server
+        .asana_get(get_params(ResourceType::Team, "team123"))
+        .await
+        .unwrap();
+    let text = get_response_text(&result);
+
+    assert!(text.contains("Engineering"));
+    assert!(text.contains("The engineering team"));
+}
+
+#[tokio::test]
+async fn test_get_workspace_teams() {
+    let mock_server = MockServer::start().await;
+
+    Mock::given(method("GET"))
+        .and(path("/workspaces/ws123/teams"))
+        .and(NoOffset)
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "data": [
+                {"gid": "team1", "name": "Engineering"},
+                {"gid": "team2", "name": "Design"},
+                {"gid": "team3", "name": "Product"}
+            ],
+            "next_page": null
+        })))
+        .mount(&mock_server)
+        .await;
+
+    let server = test_server(&mock_server.uri());
+    let result = server
+        .asana_get(get_params(ResourceType::WorkspaceTeams, "ws123"))
+        .await
+        .unwrap();
+    let text = get_response_text(&result);
+
+    assert!(text.contains("Engineering"));
+    assert!(text.contains("Design"));
+    assert!(text.contains("Product"));
+}
+
+#[tokio::test]
+async fn test_get_team_users() {
+    let mock_server = MockServer::start().await;
+
+    Mock::given(method("GET"))
+        .and(path("/teams/team123/users"))
+        .and(NoOffset)
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "data": [
+                {"gid": "user1", "name": "Alice", "email": "alice@example.com"},
+                {"gid": "user2", "name": "Charlie", "email": "charlie@example.com"}
+            ],
+            "next_page": null
+        })))
+        .mount(&mock_server)
+        .await;
+
+    let server = test_server(&mock_server.uri());
+    let result = server
+        .asana_get(get_params(ResourceType::TeamUsers, "team123"))
+        .await
+        .unwrap();
+    let text = get_response_text(&result);
+
+    assert!(text.contains("Alice"));
+    assert!(text.contains("Charlie"));
+}
+
+// ============================================================================
+// Custom Fields Tests
+// ============================================================================
+
+#[tokio::test]
+async fn test_get_project_custom_fields() {
+    let mock_server = MockServer::start().await;
+
+    Mock::given(method("GET"))
+        .and(path("/projects/proj123/custom_field_settings"))
+        .and(NoOffset)
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "data": [
+                {
+                    "gid": "cfs1",
+                    "custom_field": {
+                        "gid": "cf1",
+                        "name": "Priority",
+                        "type": "enum",
+                        "enum_options": [
+                            {"gid": "opt1", "name": "High", "color": "red"},
+                            {"gid": "opt2", "name": "Low", "color": "green"}
+                        ]
+                    },
+                    "is_important": true
+                },
+                {
+                    "gid": "cfs2",
+                    "custom_field": {
+                        "gid": "cf2",
+                        "name": "Points",
+                        "type": "number",
+                        "precision": 0
+                    },
+                    "is_important": false
+                }
+            ],
+            "next_page": null
+        })))
+        .mount(&mock_server)
+        .await;
+
+    let server = test_server(&mock_server.uri());
+    let result = server
+        .asana_get(get_params(ResourceType::ProjectCustomFields, "proj123"))
+        .await
+        .unwrap();
+    let text = get_response_text(&result);
+
+    assert!(text.contains("Priority"));
+    assert!(text.contains("Points"));
+    assert!(text.contains("High"));
+    assert!(text.contains("Low"));
+}
+
+// ============================================================================
+// Duplicate Tests
+// ============================================================================
+
+#[tokio::test]
+async fn test_create_project_duplicate() {
+    let mock_server = MockServer::start().await;
+
+    Mock::given(method("POST"))
+        .and(path("/projects/proj123/duplicate"))
+        .respond_with(ResponseTemplate::new(201).set_body_json(serde_json::json!({
+            "data": {
+                "gid": "job456",
+                "resource_type": "job",
+                "status": "in_progress",
+                "new_project": {"gid": "newproj789", "name": "Copy of Project"}
+            }
+        })))
+        .mount(&mock_server)
+        .await;
+
+    let server = test_server(&mock_server.uri());
+    let params = Parameters(CreateParams {
+        resource_type: CreateResourceType::ProjectDuplicate,
+        source_gid: Some("proj123".to_string()),
+        name: Some("Copy of Project".to_string()),
+        team_gid: Some("team1".to_string()),
+        include: Some(vec!["members".to_string(), "task_notes".to_string()]),
+        workspace_gid: None,
+        project_gid: None,
+        task_gid: None,
+        parent_gid: None,
+        template_gid: None,
+        requested_dates: None,
+        requested_roles: None,
+        notes: None,
+        html_notes: None,
+        color: None,
+        due_on: None,
+        start_on: None,
+        assignee: None,
+        privacy_setting: None,
+        public: None,
+        status_type: None,
+        title: None,
+        text: None,
+        custom_fields: None,
+    });
+
+    let result = server.asana_create(params).await.unwrap();
+    let text = get_response_text(&result);
+
+    assert!(text.contains("job456"));
+    assert!(text.contains("newproj789"));
+}
+
+#[tokio::test]
+async fn test_create_project_duplicate_requires_source_gid() {
+    let mock_server = MockServer::start().await;
+    let server = test_server(&mock_server.uri());
+
+    let params = Parameters(CreateParams {
+        resource_type: CreateResourceType::ProjectDuplicate,
+        source_gid: None, // Missing required field
+        name: Some("Copy".to_string()),
+        workspace_gid: None,
+        project_gid: None,
+        task_gid: None,
+        team_gid: None,
+        parent_gid: None,
+        template_gid: None,
+        requested_dates: None,
+        requested_roles: None,
+        notes: None,
+        html_notes: None,
+        color: None,
+        due_on: None,
+        start_on: None,
+        assignee: None,
+        privacy_setting: None,
+        public: None,
+        status_type: None,
+        title: None,
+        text: None,
+        custom_fields: None,
+        include: None,
+    });
+
+    let result = server.asana_create(params).await;
+    assert!(result.is_err());
+    let err = result.unwrap_err();
+    assert!(err.message.contains("source_gid is required"));
+}
+
+#[tokio::test]
+async fn test_create_task_duplicate() {
+    let mock_server = MockServer::start().await;
+
+    Mock::given(method("POST"))
+        .and(path("/tasks/task123/duplicate"))
+        .respond_with(ResponseTemplate::new(201).set_body_json(serde_json::json!({
+            "data": {
+                "gid": "newtask456",
+                "name": "Copy of Task",
+                "completed": false
+            }
+        })))
+        .mount(&mock_server)
+        .await;
+
+    let server = test_server(&mock_server.uri());
+    let params = Parameters(CreateParams {
+        resource_type: CreateResourceType::TaskDuplicate,
+        source_gid: Some("task123".to_string()),
+        name: Some("Copy of Task".to_string()),
+        include: Some(vec!["subtasks".to_string(), "notes".to_string()]),
+        workspace_gid: None,
+        project_gid: None,
+        task_gid: None,
+        team_gid: None,
+        parent_gid: None,
+        template_gid: None,
+        requested_dates: None,
+        requested_roles: None,
+        notes: None,
+        html_notes: None,
+        color: None,
+        due_on: None,
+        start_on: None,
+        assignee: None,
+        privacy_setting: None,
+        public: None,
+        status_type: None,
+        title: None,
+        text: None,
+        custom_fields: None,
+    });
+
+    let result = server.asana_create(params).await.unwrap();
+    let text = get_response_text(&result);
+
+    assert!(text.contains("newtask456"));
+    assert!(text.contains("Copy of Task"));
+}
+
+#[tokio::test]
+async fn test_create_task_duplicate_requires_source_gid() {
+    let mock_server = MockServer::start().await;
+    let server = test_server(&mock_server.uri());
+
+    let params = Parameters(CreateParams {
+        resource_type: CreateResourceType::TaskDuplicate,
+        source_gid: None, // Missing required field
+        name: Some("Copy".to_string()),
+        workspace_gid: None,
+        project_gid: None,
+        task_gid: None,
+        team_gid: None,
+        parent_gid: None,
+        template_gid: None,
+        requested_dates: None,
+        requested_roles: None,
+        notes: None,
+        html_notes: None,
+        color: None,
+        due_on: None,
+        start_on: None,
+        assignee: None,
+        privacy_setting: None,
+        public: None,
+        status_type: None,
+        title: None,
+        text: None,
+        custom_fields: None,
+        include: None,
+    });
+
+    let result = server.asana_create(params).await;
+    assert!(result.is_err());
+    let err = result.unwrap_err();
+    assert!(err.message.contains("source_gid is required"));
+}
+
+// ============================================================================
+// Search Tests
+// ============================================================================
+
+#[tokio::test]
+async fn test_search_basic() {
+    let mock_server = MockServer::start().await;
+
+    Mock::given(method("GET"))
+        .and(path("/workspaces/ws123/tasks/search"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "data": [
+                {"gid": "task1", "name": "Fix login bug", "completed": false},
+                {"gid": "task2", "name": "Login UI improvements", "completed": true}
+            ],
+            "next_page": null
+        })))
+        .mount(&mock_server)
+        .await;
+
+    let server = test_server(&mock_server.uri());
+    let params = Parameters(SearchParams {
+        workspace_gid: "ws123".to_string(),
+        text: Some("login".to_string()),
+        assignee: None,
+        projects: None,
+        tags: None,
+        sections: None,
+        completed: None,
+        due_on: None,
+        due_on_before: None,
+        due_on_after: None,
+        start_on: None,
+        start_on_before: None,
+        start_on_after: None,
+        modified_at_after: None,
+        modified_at_before: None,
+        portfolios: None,
+        sort_by: None,
+        sort_ascending: None,
+    });
+
+    let result = server.asana_search(params).await.unwrap();
+    let text = get_response_text(&result);
+
+    assert!(text.contains("Fix login bug"));
+    assert!(text.contains("Login UI improvements"));
+}
+
+#[tokio::test]
+async fn test_search_with_assignee_me() {
+    let mock_server = MockServer::start().await;
+
+    Mock::given(method("GET"))
+        .and(path("/workspaces/ws123/tasks/search"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "data": [
+                {"gid": "task1", "name": "My assigned task", "assignee": {"gid": "me", "name": "Me"}}
+            ],
+            "next_page": null
+        })))
+        .mount(&mock_server)
+        .await;
+
+    let server = test_server(&mock_server.uri());
+    let params = Parameters(SearchParams {
+        workspace_gid: "ws123".to_string(),
+        assignee: Some("me".to_string()),
+        text: None,
+        projects: None,
+        tags: None,
+        sections: None,
+        completed: None,
+        due_on: None,
+        due_on_before: None,
+        due_on_after: None,
+        start_on: None,
+        start_on_before: None,
+        start_on_after: None,
+        modified_at_after: None,
+        modified_at_before: None,
+        portfolios: None,
+        sort_by: None,
+        sort_ascending: None,
+    });
+
+    let result = server.asana_search(params).await.unwrap();
+    let text = get_response_text(&result);
+
+    assert!(text.contains("My assigned task"));
+}
+
+#[tokio::test]
+async fn test_search_with_filters() {
+    let mock_server = MockServer::start().await;
+
+    Mock::given(method("GET"))
+        .and(path("/workspaces/ws123/tasks/search"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "data": [
+                {"gid": "task1", "name": "Due soon task", "due_on": "2024-01-15", "completed": false}
+            ],
+            "next_page": null
+        })))
+        .mount(&mock_server)
+        .await;
+
+    let server = test_server(&mock_server.uri());
+    let params = Parameters(SearchParams {
+        workspace_gid: "ws123".to_string(),
+        completed: Some(false),
+        due_on_before: Some("2024-01-31".to_string()),
+        due_on_after: Some("2024-01-01".to_string()),
+        projects: Some(vec!["proj1".to_string()]),
+        tags: Some(vec!["tag1".to_string(), "tag2".to_string()]),
+        sort_by: Some("due_date".to_string()),
+        sort_ascending: Some(true),
+        text: None,
+        assignee: None,
+        sections: None,
+        due_on: None,
+        start_on: None,
+        start_on_before: None,
+        start_on_after: None,
+        modified_at_after: None,
+        modified_at_before: None,
+        portfolios: None,
+    });
+
+    let result = server.asana_search(params).await.unwrap();
+    let text = get_response_text(&result);
+
+    assert!(text.contains("Due soon task"));
+}
+
+#[tokio::test]
+async fn test_search_unassigned() {
+    let mock_server = MockServer::start().await;
+
+    Mock::given(method("GET"))
+        .and(path("/workspaces/ws123/tasks/search"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "data": [
+                {"gid": "task1", "name": "Unassigned task", "assignee": null}
+            ],
+            "next_page": null
+        })))
+        .mount(&mock_server)
+        .await;
+
+    let server = test_server(&mock_server.uri());
+    let params = Parameters(SearchParams {
+        workspace_gid: "ws123".to_string(),
+        assignee: Some("null".to_string()), // Special value for unassigned
+        text: None,
+        projects: None,
+        tags: None,
+        sections: None,
+        completed: None,
+        due_on: None,
+        due_on_before: None,
+        due_on_after: None,
+        start_on: None,
+        start_on_before: None,
+        start_on_after: None,
+        modified_at_after: None,
+        modified_at_before: None,
+        portfolios: None,
+        sort_by: None,
+        sort_ascending: None,
+    });
+
+    let result = server.asana_search(params).await.unwrap();
+    let text = get_response_text(&result);
+
+    assert!(text.contains("Unassigned task"));
 }

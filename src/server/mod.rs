@@ -69,7 +69,9 @@ impl AsanaServer {
             - project: Get a project (gid = project GID)\n\
             - portfolio: Get a portfolio with nested items (gid = portfolio GID, use depth to control recursion)\n\
             - task: Get a task with context (gid = task GID, use include_* flags)\n\
+            - my_tasks: Get tasks assigned to current user (gid = workspace GID)\n\
             - workspace_favorites: Get user's favorites (gid = workspace GID)\n\
+            - workspace_projects: List all projects in workspace (gid = workspace GID)\n\
             - project_tasks: Get all tasks from a project/portfolio (gid = project/portfolio GID, use subtask_depth)\n\
             - task_subtasks: Get subtasks of a task (gid = task GID)\n\
             - task_comments: Get comments on a task (gid = task GID)\n\
@@ -81,7 +83,14 @@ impl AsanaServer {
             - project_sections: List sections in a project (gid = project GID)\n\
             - section: Get a single section (gid = section GID)\n\
             - workspace_tags: List tags in a workspace (gid = workspace GID)\n\
-            - tag: Get a single tag (gid = tag GID)\n\n\
+            - tag: Get a single tag (gid = tag GID)\n\
+            - me: Get current authenticated user (gid ignored)\n\
+            - user: Get a user (gid = user GID)\n\
+            - workspace_users: List users in workspace (gid = workspace GID)\n\
+            - team: Get a team (gid = team GID)\n\
+            - workspace_teams: List teams in workspace (gid = workspace GID)\n\
+            - team_users: List users in a team (gid = team GID)\n\
+            - project_custom_fields: Get custom fields for a project (gid = project GID)\n\n\
             Depth parameters: -1 = unlimited, 0 = none, N = N levels")]
     async fn asana_get(&self, params: Parameters<GetParams>) -> Result<CallToolResult, McpError> {
         let p = params.0;
@@ -368,6 +377,81 @@ impl AsanaServer {
                     .map_err(|e| error_to_mcp("Failed to get projects", e))?;
                 json_response(&projects)
             }
+
+            ResourceType::Me => {
+                let user: Resource = self
+                    .client
+                    .get("/users/me", &[("opt_fields", USER_FIELDS)])
+                    .await
+                    .map_err(|e| error_to_mcp("Failed to get current user", e))?;
+                json_response(&user)
+            }
+
+            ResourceType::User => {
+                let user: Resource = self
+                    .client
+                    .get(&format!("/users/{}", p.gid), &[("opt_fields", USER_FIELDS)])
+                    .await
+                    .map_err(|e| error_to_mcp("Failed to get user", e))?;
+                json_response(&user)
+            }
+
+            ResourceType::WorkspaceUsers => {
+                let users: Vec<Resource> = self
+                    .client
+                    .get_all(
+                        &format!("/workspaces/{}/users", p.gid),
+                        &[("opt_fields", USER_FIELDS)],
+                    )
+                    .await
+                    .map_err(|e| error_to_mcp("Failed to get users", e))?;
+                json_response(&users)
+            }
+
+            ResourceType::Team => {
+                let team: Resource = self
+                    .client
+                    .get(&format!("/teams/{}", p.gid), &[("opt_fields", TEAM_FIELDS)])
+                    .await
+                    .map_err(|e| error_to_mcp("Failed to get team", e))?;
+                json_response(&team)
+            }
+
+            ResourceType::WorkspaceTeams => {
+                let teams: Vec<Resource> = self
+                    .client
+                    .get_all(
+                        &format!("/workspaces/{}/teams", p.gid),
+                        &[("opt_fields", TEAM_FIELDS)],
+                    )
+                    .await
+                    .map_err(|e| error_to_mcp("Failed to get teams", e))?;
+                json_response(&teams)
+            }
+
+            ResourceType::TeamUsers => {
+                let users: Vec<Resource> = self
+                    .client
+                    .get_all(
+                        &format!("/teams/{}/users", p.gid),
+                        &[("opt_fields", USER_FIELDS)],
+                    )
+                    .await
+                    .map_err(|e| error_to_mcp("Failed to get team users", e))?;
+                json_response(&users)
+            }
+
+            ResourceType::ProjectCustomFields => {
+                let settings: Vec<Resource> = self
+                    .client
+                    .get_all(
+                        &format!("/projects/{}/custom_field_settings", p.gid),
+                        &[("opt_fields", CUSTOM_FIELD_SETTINGS_FIELDS)],
+                    )
+                    .await
+                    .map_err(|e| error_to_mcp("Failed to get custom field settings", e))?;
+                json_response(&settings)
+            }
         }
     }
 
@@ -381,7 +465,9 @@ impl AsanaServer {
             - section: Create a section in a project (project_gid required)\n\
             - comment: Add a comment to a task (task_gid required)\n\
             - status_update: Create a status update (parent_gid = project/portfolio)\n\
-            - tag: Create a tag (workspace_gid required)")]
+            - tag: Create a tag (workspace_gid required)\n\
+            - project_duplicate: Duplicate a project (source_gid, name required; include[] for options)\n\
+            - task_duplicate: Duplicate a task (source_gid, name required; include[] for options)")]
     async fn asana_create(
         &self,
         params: Parameters<CreateParams>,
@@ -652,17 +738,71 @@ impl AsanaServer {
                     .map_err(|e| error_to_mcp("Failed to create tag", e))?;
                 json_response(&tag)
             }
+
+            CreateResourceType::ProjectDuplicate => {
+                let source_gid = p.source_gid.ok_or_else(|| {
+                    validation_error("source_gid is required for project_duplicate")
+                })?;
+                let name = p
+                    .name
+                    .ok_or_else(|| validation_error("name is required for project_duplicate"))?;
+
+                let mut data = serde_json::Map::new();
+                data.insert("name".to_string(), serde_json::json!(name));
+                if let Some(team) = p.team_gid {
+                    data.insert("team".to_string(), serde_json::json!(team));
+                }
+                if let Some(include) = p.include {
+                    data.insert("include".to_string(), serde_json::json!(include));
+                }
+
+                let body = serde_json::json!({"data": data});
+                let job: Resource = self
+                    .client
+                    .post(&format!("/projects/{}/duplicate", source_gid), &body)
+                    .await
+                    .map_err(|e| error_to_mcp("Failed to duplicate project", e))?;
+                json_response(&job)
+            }
+
+            CreateResourceType::TaskDuplicate => {
+                let source_gid = p
+                    .source_gid
+                    .ok_or_else(|| validation_error("source_gid is required for task_duplicate"))?;
+                let name = p
+                    .name
+                    .ok_or_else(|| validation_error("name is required for task_duplicate"))?;
+
+                let mut data = serde_json::Map::new();
+                data.insert("name".to_string(), serde_json::json!(name));
+                if let Some(include) = p.include {
+                    data.insert("include".to_string(), serde_json::json!(include));
+                }
+
+                let body = serde_json::json!({"data": data});
+                let task: Resource = self
+                    .client
+                    .post(&format!("/tasks/{}/duplicate", source_gid), &body)
+                    .await
+                    .map_err(|e| error_to_mcp("Failed to duplicate task", e))?;
+                json_response(&task)
+            }
         }
     }
 
     /// Update Asana resources.
-    #[tool(description = "Update an existing Asana resource. Supports:\n\
-            - task: Update a task\n\
-            - project: Update a project\n\
-            - portfolio: Update a portfolio\n\
-            - section: Update a section name\n\
-            - tag: Update a tag\n\
-            - comment: Update a comment/story text")]
+    #[tool(
+        description = "Update an existing Asana resource. Provide gid and only the fields to change.\n\
+            \n\
+            Resource types and their fields:\n\
+            - task: name, assignee, due_on, start_on, completed, notes, html_notes, custom_fields\n\
+            - project: name, notes, html_notes, color, archived, public, privacy_setting\n\
+            - portfolio: name, color, public\n\
+            - section: name (required)\n\
+            - tag: name, color, notes\n\
+            - comment: text (required)\n\
+            - status_update: title, text, html_notes, status_type (on_track/at_risk/off_track)"
+    )]
     async fn asana_update(
         &self,
         params: Parameters<UpdateParams>,
@@ -813,23 +953,56 @@ impl AsanaServer {
                     .map_err(|e| error_to_mcp("Failed to update comment", e))?;
                 json_response(&story)
             }
+
+            UpdateResourceType::StatusUpdate => {
+                let mut data = serde_json::Map::new();
+                if let Some(title) = p.title {
+                    data.insert("title".to_string(), serde_json::json!(title));
+                }
+                if let Some(text) = p.text {
+                    data.insert("text".to_string(), serde_json::json!(text));
+                }
+                if let Some(html_text) = p.html_notes {
+                    data.insert("html_text".to_string(), serde_json::json!(html_text));
+                }
+                if let Some(status_type) = p.status_type {
+                    data.insert("status_type".to_string(), serde_json::json!(status_type));
+                }
+
+                if data.is_empty() {
+                    return Err(validation_error(
+                        "at least one of title, text, html_notes, or status_type is required",
+                    ));
+                }
+
+                let body = serde_json::json!({"data": data});
+                let status: Resource = self
+                    .client
+                    .put(&format!("/status_updates/{}", p.gid), &body)
+                    .await
+                    .map_err(|e| error_to_mcp("Failed to update status update", e))?;
+                json_response(&status)
+            }
         }
     }
 
     /// Manage relationships between Asana resources.
-    #[tool(
-        description = "Add or remove relationships between Asana resources. Supports:\n\
-            - task_project: Add/remove a task from a project\n\
-            - task_tag: Add/remove a tag from a task\n\
-            - task_parent: Set/remove task parent (make subtask or top-level)\n\
-            - task_dependency: Add/remove task dependencies (blockers)\n\
-            - task_dependent: Add/remove task dependents (blocked by this task)\n\
-            - task_follower: Add/remove task followers\n\
-            - portfolio_item: Add/remove project from portfolio\n\
-            - portfolio_member: Add/remove portfolio members\n\
-            - project_member: Add/remove project members\n\
-            - project_follower: Add/remove project followers"
-    )]
+    #[tool(description = "Add or remove relationships between Asana resources.\n\
+            Use action='add' or action='remove', specify relationship type, target_gid, and item_gid(s).\n\
+            \n\
+            Relationships (target_gid -> item_gid):\n\
+            - task_project: task -> project (add/remove task from project)\n\
+            - task_tag: task -> tag\n\
+            - task_parent: task -> parent_task (set parent to make subtask)\n\
+            - task_dependency: task -> blocking_task(s)\n\
+            - task_dependent: task -> dependent_task(s)\n\
+            - task_follower: task -> user(s)\n\
+            - portfolio_item: portfolio -> project\n\
+            - portfolio_member: portfolio -> user(s)\n\
+            - project_member: project -> user(s)\n\
+            - project_follower: project -> user(s)\n\
+            \n\
+            Use item_gid for single item, item_gids for bulk operations.")]
     async fn asana_link(&self, params: Parameters<LinkParams>) -> Result<CallToolResult, McpError> {
         let p = params.0;
 
@@ -1073,6 +1246,110 @@ impl AsanaServer {
                 success_response("Followers removed from project")
             }
         }
+    }
+
+    /// Search for tasks in a workspace.
+    #[tool(description = "Search for tasks in a workspace with filters.\n\
+            \n\
+            Required: workspace_gid\n\
+            \n\
+            Filters (all optional):\n\
+            - text: Search in task name and notes\n\
+            - assignee: User GID, 'me' for current user, or 'null' for unassigned\n\
+            - projects: Filter by project GID(s)\n\
+            - tags: Filter by tag GID(s)\n\
+            - sections: Filter by section GID(s)\n\
+            - completed: true/false\n\
+            - due_on, due_on_before, due_on_after: Date filters (YYYY-MM-DD)\n\
+            - start_on, start_on_before, start_on_after: Start date filters\n\
+            - modified_at_after, modified_at_before: Datetime filters (ISO 8601)\n\
+            - portfolios: Filter by portfolio GID(s)\n\
+            - sort_by: due_date, created_at, completed_at, likes, modified_at\n\
+            - sort_ascending: true/false")]
+    async fn asana_search(
+        &self,
+        params: Parameters<SearchParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let p = params.0;
+
+        // Build query parameters
+        let mut query_params: Vec<(String, String)> =
+            vec![("opt_fields".to_string(), SEARCH_FIELDS.to_string())];
+
+        if let Some(text) = p.text {
+            query_params.push(("text".to_string(), text));
+        }
+        if let Some(assignee) = p.assignee {
+            if assignee == "null" {
+                query_params.push(("assignee.any".to_string(), "null".to_string()));
+            } else if assignee == "me" {
+                query_params.push(("assignee.any".to_string(), "me".to_string()));
+            } else {
+                query_params.push(("assignee.any".to_string(), assignee));
+            }
+        }
+        if let Some(projects) = p.projects {
+            query_params.push(("projects.any".to_string(), projects.join(",")));
+        }
+        if let Some(tags) = p.tags {
+            query_params.push(("tags.any".to_string(), tags.join(",")));
+        }
+        if let Some(sections) = p.sections {
+            query_params.push(("sections.any".to_string(), sections.join(",")));
+        }
+        if let Some(completed) = p.completed {
+            query_params.push(("completed".to_string(), completed.to_string()));
+        }
+        if let Some(due_on) = p.due_on {
+            query_params.push(("due_on".to_string(), due_on));
+        }
+        if let Some(due_on_before) = p.due_on_before {
+            query_params.push(("due_on.before".to_string(), due_on_before));
+        }
+        if let Some(due_on_after) = p.due_on_after {
+            query_params.push(("due_on.after".to_string(), due_on_after));
+        }
+        if let Some(start_on) = p.start_on {
+            query_params.push(("start_on".to_string(), start_on));
+        }
+        if let Some(start_on_before) = p.start_on_before {
+            query_params.push(("start_on.before".to_string(), start_on_before));
+        }
+        if let Some(start_on_after) = p.start_on_after {
+            query_params.push(("start_on.after".to_string(), start_on_after));
+        }
+        if let Some(modified_at_after) = p.modified_at_after {
+            query_params.push(("modified_at.after".to_string(), modified_at_after));
+        }
+        if let Some(modified_at_before) = p.modified_at_before {
+            query_params.push(("modified_at.before".to_string(), modified_at_before));
+        }
+        if let Some(portfolios) = p.portfolios {
+            query_params.push(("portfolios.any".to_string(), portfolios.join(",")));
+        }
+        if let Some(sort_by) = p.sort_by {
+            query_params.push(("sort_by".to_string(), sort_by));
+        }
+        if let Some(sort_ascending) = p.sort_ascending {
+            query_params.push(("sort_ascending".to_string(), sort_ascending.to_string()));
+        }
+
+        // Convert to slice of tuples for the API call
+        let query_refs: Vec<(&str, &str)> = query_params
+            .iter()
+            .map(|(k, v)| (k.as_str(), v.as_str()))
+            .collect();
+
+        let tasks: Vec<Resource> = self
+            .client
+            .get_all(
+                &format!("/workspaces/{}/tasks/search", p.workspace_gid),
+                &query_refs,
+            )
+            .await
+            .map_err(|e| error_to_mcp("Failed to search tasks", e))?;
+
+        json_response(&tasks)
     }
 }
 

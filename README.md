@@ -103,7 +103,7 @@ Depth: `-1` = unlimited, `0` = none, `N` = N levels.
 {"resource_type": "task", "gid": "123", "completed": true}
 ```
 
-Supports: `task`, `project`, `portfolio`, `section`, `tag`, `comment`.
+Supports: `task`, `project`, `portfolio`, `section`, `tag`, `comment`, `status_update`.
 
 ### asana_link
 

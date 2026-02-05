@@ -71,6 +71,24 @@ pub enum ResourceType {
     /// List all projects in a workspace (gid = workspace GID)
     #[serde(alias = "projects")]
     WorkspaceProjects,
+    /// Get the current authenticated user (gid is ignored)
+    #[serde(alias = "current_user")]
+    Me,
+    /// Get a user by GID
+    User,
+    /// List all users in a workspace (gid = workspace GID)
+    #[serde(alias = "users")]
+    WorkspaceUsers,
+    /// Get a team by GID
+    Team,
+    /// List all teams in an organization/workspace (gid = workspace GID)
+    #[serde(alias = "teams")]
+    WorkspaceTeams,
+    /// List users in a team (gid = team GID)
+    TeamUsers,
+    /// Get custom field settings for a project (gid = project GID)
+    #[serde(alias = "custom_fields")]
+    ProjectCustomFields,
 }
 
 /// Parameters for the universal get tool.
@@ -125,6 +143,10 @@ pub enum CreateResourceType {
     StatusUpdate,
     /// Create a new tag
     Tag,
+    /// Duplicate an existing project
+    ProjectDuplicate,
+    /// Duplicate an existing task
+    TaskDuplicate,
 }
 
 /// Date variable for template instantiation.
@@ -213,6 +235,72 @@ pub struct CreateParams {
     /// Custom field values as {field_gid: value}
     #[serde(default)]
     pub custom_fields: Option<HashMap<String, serde_json::Value>>,
+    /// Source GID (for project_duplicate, task_duplicate - the resource to copy)
+    #[serde(default)]
+    pub source_gid: Option<String>,
+    /// What to include when duplicating. For project: members, notes, task_notes, task_assignee,
+    /// task_subtasks, task_attachments, task_dates, task_dependencies, task_followers, task_tags.
+    /// For task: notes, assignee, subtasks, attachments, tags, followers, projects, dates, dependencies, parent.
+    #[serde(default)]
+    pub include: Option<Vec<String>>,
+}
+
+/// Parameters for task search.
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct SearchParams {
+    /// Workspace GID to search in (required)
+    pub workspace_gid: String,
+    /// Search for tasks containing this text in name or notes
+    #[serde(default)]
+    pub text: Option<String>,
+    /// Filter by assignee user GID (use "me" for current user, "null" for unassigned)
+    #[serde(default)]
+    pub assignee: Option<String>,
+    /// Filter by project GID(s)
+    #[serde(default)]
+    pub projects: Option<Vec<String>>,
+    /// Filter by tag GID(s)
+    #[serde(default)]
+    pub tags: Option<Vec<String>>,
+    /// Filter by section GID(s)
+    #[serde(default)]
+    pub sections: Option<Vec<String>>,
+    /// Filter by completion status
+    #[serde(default)]
+    pub completed: Option<bool>,
+    /// Filter by tasks due on this date (YYYY-MM-DD)
+    #[serde(default)]
+    pub due_on: Option<String>,
+    /// Filter by tasks due on or before this date
+    #[serde(default)]
+    pub due_on_before: Option<String>,
+    /// Filter by tasks due on or after this date
+    #[serde(default)]
+    pub due_on_after: Option<String>,
+    /// Filter by tasks starting on this date
+    #[serde(default)]
+    pub start_on: Option<String>,
+    /// Filter by tasks starting on or before this date
+    #[serde(default)]
+    pub start_on_before: Option<String>,
+    /// Filter by tasks starting on or after this date
+    #[serde(default)]
+    pub start_on_after: Option<String>,
+    /// Filter by tasks modified on or after this datetime (ISO 8601)
+    #[serde(default)]
+    pub modified_at_after: Option<String>,
+    /// Filter by tasks modified on or before this datetime (ISO 8601)
+    #[serde(default)]
+    pub modified_at_before: Option<String>,
+    /// Filter by tasks in portfolios (GID)
+    #[serde(default)]
+    pub portfolios: Option<Vec<String>>,
+    /// Sort by: due_date, created_at, completed_at, likes, modified_at
+    #[serde(default)]
+    pub sort_by: Option<String>,
+    /// Sort order: asc or desc
+    #[serde(default)]
+    pub sort_ascending: Option<bool>,
 }
 
 /// The type of resource to update.
@@ -231,6 +319,8 @@ pub enum UpdateResourceType {
     Tag,
     /// Update a comment/story
     Comment,
+    /// Update a status update
+    StatusUpdate,
 }
 
 /// Parameters for the update tool.
@@ -273,9 +363,15 @@ pub struct UpdateParams {
     /// Make public/private
     #[serde(default)]
     pub public: Option<bool>,
-    /// New text content (for comment)
+    /// New text content (for comment, status_update)
     #[serde(default)]
     pub text: Option<String>,
+    /// New title (for status_update)
+    #[serde(default)]
+    pub title: Option<String>,
+    /// New status type (for status_update): "on_track", "at_risk", "off_track", etc.
+    #[serde(default)]
+    pub status_type: Option<String>,
     /// Updated custom field values
     #[serde(default)]
     pub custom_fields: Option<HashMap<String, serde_json::Value>>,

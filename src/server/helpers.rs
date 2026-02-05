@@ -152,6 +152,35 @@ mod tests {
     }
 
     #[test]
+    fn test_error_to_mcp_invalid_token() {
+        let error = Error::InvalidToken;
+        let mcp_error = error_to_mcp("Test", error);
+
+        assert_eq!(mcp_error.code, ErrorCode::INVALID_PARAMS);
+        assert!(mcp_error.message.contains("invalid token"));
+    }
+
+    #[test]
+    fn test_error_to_mcp_parse_error() {
+        // Create a real serde_json::Error by parsing invalid JSON
+        let parse_err = serde_json::from_str::<serde_json::Value>("not valid json").unwrap_err();
+        let error = Error::Parse(parse_err);
+        let mcp_error = error_to_mcp("Test", error);
+
+        assert_eq!(mcp_error.code, ErrorCode::INTERNAL_ERROR);
+        assert!(mcp_error.message.contains("parse"));
+    }
+
+    #[test]
+    fn test_to_mcp_error() {
+        let mcp_error = to_mcp_error("Serialization", "unexpected EOF");
+
+        assert_eq!(mcp_error.code, ErrorCode::INTERNAL_ERROR);
+        assert!(mcp_error.message.contains("Serialization"));
+        assert!(mcp_error.message.contains("unexpected EOF"));
+    }
+
+    #[test]
     fn test_validation_error() {
         let error = validation_error("name is required");
 

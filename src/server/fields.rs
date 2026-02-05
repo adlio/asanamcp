@@ -61,3 +61,20 @@ pub const SECTION_FIELDS: &str = "gid,name,project,project.name,created_at";
 /// Fields to request for tags.
 pub const TAG_FIELDS: &str =
     "gid,name,color,notes,workspace,workspace.name,created_at,permalink_url";
+
+/// Fields to request for users.
+pub const USER_FIELDS: &str = "gid,name,email,photo,workspaces,workspaces.name";
+
+/// Fields to request for teams.
+pub const TEAM_FIELDS: &str = "gid,name,description,html_description,organization,permalink_url";
+
+/// Fields to request for custom field settings.
+pub const CUSTOM_FIELD_SETTINGS_FIELDS: &str = "gid,custom_field,custom_field.gid,\
+    custom_field.name,custom_field.type,custom_field.enum_options,\
+    custom_field.enum_options.gid,custom_field.enum_options.name,\
+    custom_field.enum_options.color,custom_field.precision,\
+    custom_field.currency_code,is_important,project";
+
+/// Fields to request for search results.
+pub const SEARCH_FIELDS: &str = "gid,name,completed,assignee,assignee.name,\
+    due_on,start_on,projects,projects.name,tags,tags.name,permalink_url";
