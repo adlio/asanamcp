@@ -1,0 +1,33 @@
+[package]
+name = "asanamcp"
+version = "0.1.0"
+edition = "2021"
+description = "MCP server for Asana API"
+license = "MIT"
+repository = "https://github.com/adlio/asanamcp"
+keywords = ["asana", "mcp", "api"]
+categories = ["api-bindings", "development-tools"]
+
+[lib]
+name = "asanamcp"
+path = "src/lib.rs"
+
+[[bin]]
+name = "asanamcp"
+path = "src/main.rs"
+
+[dependencies]
+reqwest = { version = "0.12", features = ["json"] }
+rmcp = { version = "0.11", features = ["server", "transport-io"] }
+schemars = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+thiserror = "2.0"
+tokio = { version = "1.0", features = ["rt-multi-thread", "macros"] }
+
+[dev-dependencies]
+tokio-test = "0.4"
+wiremock = "0.6"
+
+[package.metadata.cargo-husky]
+hooks = ["pre-commit"]

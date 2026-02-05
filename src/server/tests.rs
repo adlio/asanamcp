@@ -1,0 +1,1996 @@
+//! Tests for the Asana MCP server.
+
+use super::*;
+use crate::client::AsanaClient;
+use wiremock::matchers::{body_json, method, path};
+use wiremock::{Match, Mock, MockServer, Request, ResponseTemplate};
+
+/// Custom matcher that matches requests without an "offset" query parameter.
+struct NoOffset;
+
+impl Match for NoOffset {
+    fn matches(&self, request: &Request) -> bool {
+        !request.url.query_pairs().any(|(k, _)| k == "offset")
+    }
+}
+
+fn test_server(mock_uri: &str) -> AsanaServer {
+    let client = AsanaClient::new("test-token")
+        .unwrap()
+        .with_base_url(mock_uri);
+    AsanaServer::with_client(client)
+}
+
+fn get_response_text(result: &CallToolResult) -> &str {
+    &result.content[0]
+        .as_text()
+        .expect("Expected text content")
+        .text
+}
+
+fn get_params(resource_type: ResourceType, gid: &str) -> Parameters<GetParams> {
+    Parameters(GetParams {
+        resource_type,
+        gid: gid.to_string(),
+        depth: None,
+        subtask_depth: None,
+        include_subtasks: None,
+        include_dependencies: None,
+        include_comments: None,
+        include_projects: None,
+        include_portfolios: None,
+    })
+}
+
+// ============================================================================
+// Workspaces Tests
+// ============================================================================
+
+#[tokio::test]
+async fn test_workspaces_success() {
+    let mock_server = MockServer::start().await;
+
+    Mock::given(method("GET"))
+        .and(path("/workspaces"))
+        .and(NoOffset)
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "data": [
+                {"gid": "123", "name": "My Workspace", "is_organization": true},
+                {"gid": "456", "name": "Another Workspace", "is_organization": false}
+            ],
+            "next_page": null
+        })))
+        .mount(&mock_server)
+        .await;
+
+    let server = test_server(&mock_server.uri());
+    let result = server
+        .asana_workspaces(Parameters(WorkspacesParams {}))
+        .await
+        .unwrap();
+    let text = get_response_text(&result);
+
+    assert!(text.contains("My Workspace"));
+    assert!(text.contains("Another Workspace"));
+}
+
+// ============================================================================
+// Get Project Tests
+// ============================================================================
+
+#[tokio::test]
+async fn test_get_project_success() {
+    let mock_server = MockServer::start().await;
+
+    Mock::given(method("GET"))
+        .and(path("/projects/proj123"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "data": {
+                "gid": "proj123",
+                "name": "Test Project",
+                "archived": false,
+                "public": true,
+                "notes": "Project description"
+            }
+        })))
+        .mount(&mock_server)
+        .await;
+
+    let server = test_server(&mock_server.uri());
+    let result = server
+        .asana_get(get_params(ResourceType::Project, "proj123"))
+        .await
+        .unwrap();
+    let text = get_response_text(&result);
+
+    assert!(text.contains("Test Project"));
+    assert!(text.contains("proj123"));
+}
+
+#[tokio::test]
+async fn test_get_project_not_found() {
+    let mock_server = MockServer::start().await;
+
+    Mock::given(method("GET"))
+        .and(path("/projects/missing"))
+        .respond_with(ResponseTemplate::new(404))
+        .mount(&mock_server)
+        .await;
+
+    let server = test_server(&mock_server.uri());
+    let result = server
+        .asana_get(get_params(ResourceType::Project, "missing"))
+        .await;
+
+    assert!(result.is_err());
+    let err = result.unwrap_err();
+    assert!(err.message.contains("Failed to get project"));
+}
+
+// ============================================================================
+// Recursive Portfolio Tests
+// ============================================================================
+
+#[tokio::test]
+async fn test_get_portfolio_depth_zero_returns_no_items() {
+    let mock_server = MockServer::start().await;
+
+    Mock::given(method("GET"))
+        .and(path("/portfolios/port123"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "data": {
+                "gid": "port123",
+                "name": "Test Portfolio"
+            }
+        })))
+        .mount(&mock_server)
+        .await;
+
+    // Note: No items endpoint mock - shouldn't be called with depth=0
+
+    let server = test_server(&mock_server.uri());
+    let mut params = get_params(ResourceType::Portfolio, "port123");
+    params.0.depth = Some(0); // depth=0 means no items
+
+    let result = server.asana_get(params).await.unwrap();
+    let text = get_response_text(&result);
+
+    assert!(text.contains("Test Portfolio"));
+    assert!(text.contains("\"items\": []"));
+}
+
+#[tokio::test]
+async fn test_get_portfolio_depth_one_fetches_direct_children() {
+    let mock_server = MockServer::start().await;
+
+    Mock::given(method("GET"))
+        .and(path("/portfolios/port123"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "data": {
+                "gid": "port123",
+                "name": "Parent Portfolio"
+            }
+        })))
+        .mount(&mock_server)
+        .await;
+
+    Mock::given(method("GET"))
+        .and(path("/portfolios/port123/items"))
+        .and(NoOffset)
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "data": [
+                {"gid": "proj1", "resource_type": "project", "name": "Project 1"}
+            ],
+            "next_page": null
+        })))
+        .mount(&mock_server)
+        .await;
+
+    Mock::given(method("GET"))
+        .and(path("/projects/proj1"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "data": {
+                "gid": "proj1",
+                "name": "Project 1 Full"
+            }
+        })))
+        .mount(&mock_server)
+        .await;
+
+    let server = test_server(&mock_server.uri());
+    let mut params = get_params(ResourceType::Portfolio, "port123");
+    params.0.depth = Some(1);
+
+    let result = server.asana_get(params).await.unwrap();
+    let text = get_response_text(&result);
+
+    assert!(text.contains("Parent Portfolio"));
+    assert!(text.contains("Project 1 Full"));
+}
+
+#[tokio::test]
+async fn test_get_portfolio_unlimited_depth_traverses_nested() {
+    let mock_server = MockServer::start().await;
+
+    // Parent portfolio
+    Mock::given(method("GET"))
+        .and(path("/portfolios/parent"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "data": {"gid": "parent", "name": "Parent"}
+        })))
+        .mount(&mock_server)
+        .await;
+
+    Mock::given(method("GET"))
+        .and(path("/portfolios/parent/items"))
+        .and(NoOffset)
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "data": [
+                {"gid": "child", "resource_type": "portfolio", "name": "Child"}
+            ],
+            "next_page": null
+        })))
+        .mount(&mock_server)
+        .await;
+
+    // Child portfolio
+    Mock::given(method("GET"))
+        .and(path("/portfolios/child"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "data": {"gid": "child", "name": "Child Portfolio"}
+        })))
+        .mount(&mock_server)
+        .await;
+
+    Mock::given(method("GET"))
+        .and(path("/portfolios/child/items"))
+        .and(NoOffset)
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "data": [
+                {"gid": "proj1", "resource_type": "project", "name": "Project"}
+            ],
+            "next_page": null
+        })))
+        .mount(&mock_server)
+        .await;
+
+    Mock::given(method("GET"))
+        .and(path("/projects/proj1"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "data": {"gid": "proj1", "name": "Nested Project"}
+        })))
+        .mount(&mock_server)
+        .await;
+
+    let server = test_server(&mock_server.uri());
+    let mut params = get_params(ResourceType::Portfolio, "parent");
+    params.0.depth = Some(-1); // Unlimited
+
+    let result = server.asana_get(params).await.unwrap();
+    let text = get_response_text(&result);
+
+    assert!(text.contains("Parent"));
+    assert!(text.contains("Child Portfolio"));
+    assert!(text.contains("Nested Project"));
+}
+
+// ============================================================================
+// Task With Context Tests
+// ============================================================================
+
+#[tokio::test]
+async fn test_get_task_with_all_context() {
+    let mock_server = MockServer::start().await;
+
+    Mock::given(method("GET"))
+        .and(path("/tasks/task123"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "data": {
+                "gid": "task123",
+                "name": "Test Task",
+                "completed": false
+            }
+        })))
+        .mount(&mock_server)
+        .await;
+
+    Mock::given(method("GET"))
+        .and(path("/tasks/task123/subtasks"))
+        .and(NoOffset)
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "data": [{"gid": "sub1", "name": "Subtask 1", "completed": false, "num_subtasks": 0}],
+            "next_page": null
+        })))
+        .mount(&mock_server)
+        .await;
+
+    Mock::given(method("GET"))
+        .and(path("/tasks/task123/dependencies"))
+        .and(NoOffset)
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "data": [{"gid": "dep1", "name": "Blocker Task"}],
+            "next_page": null
+        })))
+        .mount(&mock_server)
+        .await;
+
+    Mock::given(method("GET"))
+        .and(path("/tasks/task123/dependents"))
+        .and(NoOffset)
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "data": [],
+            "next_page": null
+        })))
+        .mount(&mock_server)
+        .await;
+
+    Mock::given(method("GET"))
+        .and(path("/tasks/task123/stories"))
+        .and(NoOffset)
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "data": [
+                {"gid": "story1", "resource_subtype": "comment_added", "text": "Hello"},
+                {"gid": "story2", "resource_subtype": "added_to_project", "text": null}
+            ],
+            "next_page": null
+        })))
+        .mount(&mock_server)
+        .await;
+
+    let server = test_server(&mock_server.uri());
+    let result = server
+        .asana_get(get_params(ResourceType::Task, "task123"))
+        .await
+        .unwrap();
+    let text = get_response_text(&result);
+
+    assert!(text.contains("Test Task"));
+    assert!(text.contains("Subtask 1"));
+    assert!(text.contains("Blocker Task"));
+    assert!(text.contains("Hello")); // Comment
+    assert!(!text.contains("added_to_project")); // System story filtered
+}
+
+#[tokio::test]
+async fn test_get_task_without_context() {
+    let mock_server = MockServer::start().await;
+
+    Mock::given(method("GET"))
+        .and(path("/tasks/task123"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "data": {
+                "gid": "task123",
+                "name": "Test Task",
+                "completed": false
+            }
+        })))
+        .mount(&mock_server)
+        .await;
+
+    // No subtasks/dependencies/stories mocks - shouldn't be called
+
+    let server = test_server(&mock_server.uri());
+    let params = Parameters(GetParams {
+        resource_type: ResourceType::Task,
+        gid: "task123".to_string(),
+        depth: None,
+        subtask_depth: None,
+        include_subtasks: Some(false),
+        include_dependencies: Some(false),
+        include_comments: Some(false),
+        include_projects: None,
+        include_portfolios: None,
+    });
+
+    let result = server.asana_get(params).await.unwrap();
+    let text = get_response_text(&result);
+
+    assert!(text.contains("Test Task"));
+    // When include_* flags are false, empty arrays are omitted from serialization
+    // (due to #[serde(skip_serializing_if = "Vec::is_empty")])
+    assert!(!text.contains("\"subtasks\""));
+    assert!(!text.contains("\"dependencies\""));
+    assert!(!text.contains("\"comments\""));
+}
+
+// ============================================================================
+// Get Tasks Recursive Tests
+// ============================================================================
+
+#[tokio::test]
+async fn test_get_tasks_from_project_no_subtasks() {
+    let mock_server = MockServer::start().await;
+
+    Mock::given(method("GET"))
+        .and(path("/projects/proj123"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "data": {"gid": "proj123"}
+        })))
+        .mount(&mock_server)
+        .await;
+
+    Mock::given(method("GET"))
+        .and(path("/projects/proj123/tasks"))
+        .and(NoOffset)
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "data": [
+                {"gid": "task1", "name": "Task 1", "num_subtasks": 0},
+                {"gid": "task2", "name": "Task 2", "num_subtasks": 0}
+            ],
+            "next_page": null
+        })))
+        .mount(&mock_server)
+        .await;
+
+    let server = test_server(&mock_server.uri());
+    let mut params = get_params(ResourceType::ProjectTasks, "proj123");
+    params.0.subtask_depth = Some(0);
+
+    let result = server.asana_get(params).await.unwrap();
+    let text = get_response_text(&result);
+
+    assert!(text.contains("Task 1"));
+    assert!(text.contains("Task 2"));
+}
+
+#[tokio::test]
+async fn test_get_tasks_from_project_with_subtask_expansion() {
+    let mock_server = MockServer::start().await;
+
+    Mock::given(method("GET"))
+        .and(path("/projects/proj123"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "data": {"gid": "proj123"}
+        })))
+        .mount(&mock_server)
+        .await;
+
+    Mock::given(method("GET"))
+        .and(path("/projects/proj123/tasks"))
+        .and(NoOffset)
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "data": [
+                {"gid": "task1", "name": "Parent Task", "num_subtasks": 2}
+            ],
+            "next_page": null
+        })))
+        .mount(&mock_server)
+        .await;
+
+    Mock::given(method("GET"))
+        .and(path("/tasks/task1/subtasks"))
+        .and(NoOffset)
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "data": [
+                {"gid": "sub1", "name": "Subtask 1", "num_subtasks": 0},
+                {"gid": "sub2", "name": "Subtask 2", "num_subtasks": 0}
+            ],
+            "next_page": null
+        })))
+        .mount(&mock_server)
+        .await;
+
+    let server = test_server(&mock_server.uri());
+    let mut params = get_params(ResourceType::ProjectTasks, "proj123");
+    params.0.subtask_depth = Some(1);
+
+    let result = server.asana_get(params).await.unwrap();
+    let text = get_response_text(&result);
+
+    assert!(text.contains("Parent Task"));
+    assert!(text.contains("Subtask 1"));
+    assert!(text.contains("Subtask 2"));
+}
+
+#[tokio::test]
+async fn test_get_tasks_detects_portfolio_after_project_404() {
+    let mock_server = MockServer::start().await;
+
+    // Project returns 404
+    Mock::given(method("GET"))
+        .and(path("/projects/port123"))
+        .respond_with(ResponseTemplate::new(404))
+        .mount(&mock_server)
+        .await;
+
+    // Portfolio succeeds
+    Mock::given(method("GET"))
+        .and(path("/portfolios/port123"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "data": {"gid": "port123", "name": "Portfolio"}
+        })))
+        .mount(&mock_server)
+        .await;
+
+    Mock::given(method("GET"))
+        .and(path("/portfolios/port123/items"))
+        .and(NoOffset)
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "data": [{"gid": "proj1", "resource_type": "project", "name": "Project"}],
+            "next_page": null
+        })))
+        .mount(&mock_server)
+        .await;
+
+    Mock::given(method("GET"))
+        .and(path("/projects/proj1"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "data": {"gid": "proj1"}
+        })))
+        .mount(&mock_server)
+        .await;
+
+    Mock::given(method("GET"))
+        .and(path("/projects/proj1/tasks"))
+        .and(NoOffset)
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "data": [{"gid": "task1", "name": "Portfolio Task", "num_subtasks": 0}],
+            "next_page": null
+        })))
+        .mount(&mock_server)
+        .await;
+
+    let server = test_server(&mock_server.uri());
+    let mut params = get_params(ResourceType::ProjectTasks, "port123");
+    params.0.subtask_depth = Some(0);
+    params.0.depth = Some(1);
+
+    let result = server.asana_get(params).await.unwrap();
+    let text = get_response_text(&result);
+
+    assert!(text.contains("Portfolio Task"));
+}
+
+// ============================================================================
+// Create Tests
+// ============================================================================
+
+#[tokio::test]
+async fn test_create_task_success() {
+    let mock_server = MockServer::start().await;
+
+    Mock::given(method("POST"))
+        .and(path("/tasks"))
+        .respond_with(ResponseTemplate::new(201).set_body_json(serde_json::json!({
+            "data": {
+                "gid": "new_task",
+                "name": "New Task",
+                "completed": false
+            }
+        })))
+        .mount(&mock_server)
+        .await;
+
+    let server = test_server(&mock_server.uri());
+    let params = Parameters(CreateParams {
+        resource_type: CreateResourceType::Task,
+        workspace_gid: Some("ws123".to_string()),
+        name: Some("New Task".to_string()),
+        project_gid: None,
+        task_gid: None,
+        team_gid: None,
+        parent_gid: None,
+        template_gid: None,
+        requested_dates: None,
+        requested_roles: None,
+        notes: None,
+        html_notes: None,
+        color: None,
+        due_on: None,
+        start_on: None,
+        assignee: None,
+        privacy_setting: None,
+        public: None,
+        status_type: None,
+        title: None,
+        text: None,
+        custom_fields: None,
+    });
+
+    let result = server.asana_create(params).await.unwrap();
+    let text = get_response_text(&result);
+
+    assert!(text.contains("new_task"));
+    assert!(text.contains("New Task"));
+}
+
+#[tokio::test]
+async fn test_create_subtask_requires_task_gid() {
+    let mock_server = MockServer::start().await;
+    let server = test_server(&mock_server.uri());
+
+    let params = Parameters(CreateParams {
+        resource_type: CreateResourceType::Subtask,
+        task_gid: None, // Missing required field
+        workspace_gid: None,
+        name: Some("Subtask".to_string()),
+        project_gid: None,
+        team_gid: None,
+        parent_gid: None,
+        template_gid: None,
+        requested_dates: None,
+        requested_roles: None,
+        notes: None,
+        html_notes: None,
+        color: None,
+        due_on: None,
+        start_on: None,
+        assignee: None,
+        privacy_setting: None,
+        public: None,
+        status_type: None,
+        title: None,
+        text: None,
+        custom_fields: None,
+    });
+
+    let result = server.asana_create(params).await;
+    assert!(result.is_err());
+    let err = result.unwrap_err();
+    assert!(err.message.contains("task_gid is required"));
+}
+
+#[tokio::test]
+async fn test_create_project_success() {
+    let mock_server = MockServer::start().await;
+
+    Mock::given(method("POST"))
+        .and(path("/projects"))
+        .respond_with(ResponseTemplate::new(201).set_body_json(serde_json::json!({
+            "data": {
+                "gid": "new_proj",
+                "name": "New Project"
+            }
+        })))
+        .mount(&mock_server)
+        .await;
+
+    let server = test_server(&mock_server.uri());
+    let params = Parameters(CreateParams {
+        resource_type: CreateResourceType::Project,
+        workspace_gid: Some("ws123".to_string()),
+        name: Some("New Project".to_string()),
+        project_gid: None,
+        task_gid: None,
+        team_gid: None,
+        parent_gid: None,
+        template_gid: None,
+        requested_dates: None,
+        requested_roles: None,
+        notes: None,
+        html_notes: None,
+        color: None,
+        due_on: None,
+        start_on: None,
+        assignee: None,
+        privacy_setting: None,
+        public: None,
+        status_type: None,
+        title: None,
+        text: None,
+        custom_fields: None,
+    });
+
+    let result = server.asana_create(params).await.unwrap();
+    let text = get_response_text(&result);
+
+    assert!(text.contains("New Project"));
+}
+
+#[tokio::test]
+async fn test_create_comment_success() {
+    let mock_server = MockServer::start().await;
+
+    Mock::given(method("POST"))
+        .and(path("/tasks/task123/stories"))
+        .and(body_json(
+            serde_json::json!({"data": {"text": "Hello world"}}),
+        ))
+        .respond_with(ResponseTemplate::new(201).set_body_json(serde_json::json!({
+            "data": {
+                "gid": "story123",
+                "text": "Hello world",
+                "resource_subtype": "comment_added"
+            }
+        })))
+        .mount(&mock_server)
+        .await;
+
+    let server = test_server(&mock_server.uri());
+    let params = Parameters(CreateParams {
+        resource_type: CreateResourceType::Comment,
+        task_gid: Some("task123".to_string()),
+        text: Some("Hello world".to_string()),
+        workspace_gid: None,
+        name: None,
+        project_gid: None,
+        team_gid: None,
+        parent_gid: None,
+        template_gid: None,
+        requested_dates: None,
+        requested_roles: None,
+        notes: None,
+        html_notes: None,
+        color: None,
+        due_on: None,
+        start_on: None,
+        assignee: None,
+        privacy_setting: None,
+        public: None,
+        status_type: None,
+        title: None,
+        custom_fields: None,
+    });
+
+    let result = server.asana_create(params).await.unwrap();
+    let text = get_response_text(&result);
+
+    assert!(text.contains("Hello world"));
+}
+
+// ============================================================================
+// Update Tests
+// ============================================================================
+
+#[tokio::test]
+async fn test_update_task_success() {
+    let mock_server = MockServer::start().await;
+
+    Mock::given(method("PUT"))
+        .and(path("/tasks/task123"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "data": {
+                "gid": "task123",
+                "name": "Updated Task",
+                "completed": true
+            }
+        })))
+        .mount(&mock_server)
+        .await;
+
+    let server = test_server(&mock_server.uri());
+    let params = Parameters(UpdateParams {
+        resource_type: UpdateResourceType::Task,
+        gid: "task123".to_string(),
+        name: Some("Updated Task".to_string()),
+        completed: Some(true),
+        notes: None,
+        html_notes: None,
+        due_on: None,
+        start_on: None,
+        assignee: None,
+        color: None,
+        archived: None,
+        privacy_setting: None,
+        public: None,
+        text: None,
+        custom_fields: None,
+    });
+
+    let result = server.asana_update(params).await.unwrap();
+    let text = get_response_text(&result);
+
+    assert!(text.contains("Updated Task"));
+    assert!(text.contains("true")); // completed: true
+}
+
+#[tokio::test]
+async fn test_update_section_requires_name() {
+    let mock_server = MockServer::start().await;
+    let server = test_server(&mock_server.uri());
+
+    let params = Parameters(UpdateParams {
+        resource_type: UpdateResourceType::Section,
+        gid: "section123".to_string(),
+        name: None, // Missing required field
+        notes: None,
+        html_notes: None,
+        completed: None,
+        due_on: None,
+        start_on: None,
+        assignee: None,
+        color: None,
+        archived: None,
+        privacy_setting: None,
+        public: None,
+        text: None,
+        custom_fields: None,
+    });
+
+    let result = server.asana_update(params).await;
+    assert!(result.is_err());
+    let err = result.unwrap_err();
+    assert!(err.message.contains("name is required"));
+}
+
+// ============================================================================
+// Link Tests
+// ============================================================================
+
+#[tokio::test]
+async fn test_link_task_to_project() {
+    let mock_server = MockServer::start().await;
+
+    Mock::given(method("POST"))
+        .and(path("/tasks/task123/addProject"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "data": {}
+        })))
+        .mount(&mock_server)
+        .await;
+
+    let server = test_server(&mock_server.uri());
+    let params = Parameters(LinkParams {
+        action: LinkAction::Add,
+        relationship: RelationshipType::TaskProject,
+        target_gid: "task123".to_string(),
+        item_gid: Some("proj456".to_string()),
+        item_gids: None,
+        section_gid: None,
+        insert_before: None,
+        insert_after: None,
+    });
+
+    let result = server.asana_link(params).await.unwrap();
+    let text = get_response_text(&result);
+
+    assert!(text.contains("success"));
+    assert!(text.contains("Task added to project"));
+}
+
+#[tokio::test]
+async fn test_link_add_dependencies() {
+    let mock_server = MockServer::start().await;
+
+    Mock::given(method("POST"))
+        .and(path("/tasks/task123/addDependencies"))
+        .and(body_json(serde_json::json!({
+            "data": {"dependencies": ["dep1", "dep2"]}
+        })))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "data": {}
+        })))
+        .mount(&mock_server)
+        .await;
+
+    let server = test_server(&mock_server.uri());
+    let params = Parameters(LinkParams {
+        action: LinkAction::Add,
+        relationship: RelationshipType::TaskDependency,
+        target_gid: "task123".to_string(),
+        item_gid: None,
+        item_gids: Some(vec!["dep1".to_string(), "dep2".to_string()]),
+        section_gid: None,
+        insert_before: None,
+        insert_after: None,
+    });
+
+    let result = server.asana_link(params).await.unwrap();
+    let text = get_response_text(&result);
+
+    assert!(text.contains("Dependencies added"));
+}
+
+#[tokio::test]
+async fn test_link_requires_item_gid() {
+    let mock_server = MockServer::start().await;
+    let server = test_server(&mock_server.uri());
+
+    let params = Parameters(LinkParams {
+        action: LinkAction::Add,
+        relationship: RelationshipType::TaskProject,
+        target_gid: "task123".to_string(),
+        item_gid: None,
+        item_gids: None, // Both missing
+        section_gid: None,
+        insert_before: None,
+        insert_after: None,
+    });
+
+    let result = server.asana_link(params).await;
+    assert!(result.is_err());
+    let err = result.unwrap_err();
+    assert!(err.message.contains("item_gid"));
+}
+
+// ============================================================================
+// Status Updates Fallback Tests
+// ============================================================================
+
+#[tokio::test]
+async fn test_status_updates_project_success() {
+    let mock_server = MockServer::start().await;
+
+    Mock::given(method("GET"))
+        .and(path("/projects/proj123/status_updates"))
+        .and(NoOffset)
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "data": [{"gid": "status1", "title": "On track"}],
+            "next_page": null
+        })))
+        .mount(&mock_server)
+        .await;
+
+    let server = test_server(&mock_server.uri());
+    let result = server
+        .asana_get(get_params(ResourceType::ProjectStatusUpdates, "proj123"))
+        .await
+        .unwrap();
+    let text = get_response_text(&result);
+
+    assert!(text.contains("On track"));
+}
+
+#[tokio::test]
+async fn test_status_updates_falls_back_to_portfolio() {
+    let mock_server = MockServer::start().await;
+
+    // Project returns 404
+    Mock::given(method("GET"))
+        .and(path("/projects/port123/status_updates"))
+        .respond_with(ResponseTemplate::new(404))
+        .mount(&mock_server)
+        .await;
+
+    // Portfolio succeeds
+    Mock::given(method("GET"))
+        .and(path("/portfolios/port123/status_updates"))
+        .and(NoOffset)
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "data": [{"gid": "status2", "title": "Portfolio status"}],
+            "next_page": null
+        })))
+        .mount(&mock_server)
+        .await;
+
+    let server = test_server(&mock_server.uri());
+    let result = server
+        .asana_get(get_params(ResourceType::ProjectStatusUpdates, "port123"))
+        .await
+        .unwrap();
+    let text = get_response_text(&result);
+
+    assert!(text.contains("Portfolio status"));
+}
+
+// ============================================================================
+// Alias Backward Compatibility Tests
+// ============================================================================
+
+#[tokio::test]
+async fn test_resource_type_alias_favorites() {
+    // Test that the old "favorites" name still works via alias
+    let params: GetParams =
+        serde_json::from_str(r#"{"resource_type": "favorites", "gid": "ws123"}"#).unwrap();
+    assert_eq!(params.resource_type, ResourceType::WorkspaceFavorites);
+}
+
+#[tokio::test]
+async fn test_resource_type_alias_tasks() {
+    let params: GetParams =
+        serde_json::from_str(r#"{"resource_type": "tasks", "gid": "proj123"}"#).unwrap();
+    assert_eq!(params.resource_type, ResourceType::ProjectTasks);
+}
+
+#[tokio::test]
+async fn test_resource_type_new_name_workspace_favorites() {
+    let params: GetParams =
+        serde_json::from_str(r#"{"resource_type": "workspace_favorites", "gid": "ws123"}"#)
+            .unwrap();
+    assert_eq!(params.resource_type, ResourceType::WorkspaceFavorites);
+}
+
+// ============================================================================
+// Additional Get Tests - Complete Coverage
+// ============================================================================
+
+#[tokio::test]
+async fn test_get_workspace_favorites() {
+    let mock_server = MockServer::start().await;
+
+    // Mock favorites list
+    Mock::given(method("GET"))
+        .and(path("/users/me/favorites"))
+        .and(NoOffset)
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "data": [
+                {"gid": "proj1", "resource_type": "project", "name": "My Project"},
+                {"gid": "port1", "resource_type": "portfolio", "name": "My Portfolio"}
+            ],
+            "next_page": null
+        })))
+        .mount(&mock_server)
+        .await;
+
+    // Mock project fetch
+    Mock::given(method("GET"))
+        .and(path("/projects/proj1"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "data": {"gid": "proj1", "name": "My Project", "color": "blue"}
+        })))
+        .mount(&mock_server)
+        .await;
+
+    // Mock portfolio fetch
+    Mock::given(method("GET"))
+        .and(path("/portfolios/port1"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "data": {"gid": "port1", "name": "My Portfolio"}
+        })))
+        .mount(&mock_server)
+        .await;
+
+    // Mock portfolio items (empty for depth=0)
+    Mock::given(method("GET"))
+        .and(path("/portfolios/port1/items"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "data": [],
+            "next_page": null
+        })))
+        .mount(&mock_server)
+        .await;
+
+    let server = test_server(&mock_server.uri());
+    let params = Parameters(GetParams {
+        resource_type: ResourceType::WorkspaceFavorites,
+        gid: "ws123".to_string(),
+        depth: Some(0),
+        subtask_depth: None,
+        include_subtasks: None,
+        include_dependencies: None,
+        include_comments: None,
+        include_projects: Some(true),
+        include_portfolios: Some(true),
+    });
+
+    let result = server.asana_get(params).await.unwrap();
+    let text = get_response_text(&result);
+
+    assert!(text.contains("My Project"));
+    assert!(text.contains("My Portfolio"));
+}
+
+#[tokio::test]
+async fn test_get_task_subtasks() {
+    let mock_server = MockServer::start().await;
+
+    Mock::given(method("GET"))
+        .and(path("/tasks/task123/subtasks"))
+        .and(NoOffset)
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "data": [
+                {"gid": "sub1", "name": "Subtask 1", "completed": false},
+                {"gid": "sub2", "name": "Subtask 2", "completed": true}
+            ],
+            "next_page": null
+        })))
+        .mount(&mock_server)
+        .await;
+
+    let server = test_server(&mock_server.uri());
+    let result = server
+        .asana_get(get_params(ResourceType::TaskSubtasks, "task123"))
+        .await
+        .unwrap();
+    let text = get_response_text(&result);
+
+    assert!(text.contains("Subtask 1"));
+    assert!(text.contains("Subtask 2"));
+}
+
+#[tokio::test]
+async fn test_get_task_comments() {
+    let mock_server = MockServer::start().await;
+
+    Mock::given(method("GET"))
+        .and(path("/tasks/task123/stories"))
+        .and(NoOffset)
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "data": [
+                {"gid": "story1", "resource_subtype": "comment_added", "text": "Great work!"},
+                {"gid": "story2", "resource_subtype": "assigned", "text": "Assigned to John"},
+                {"gid": "story3", "resource_subtype": "comment_added", "text": "Thanks!"}
+            ],
+            "next_page": null
+        })))
+        .mount(&mock_server)
+        .await;
+
+    let server = test_server(&mock_server.uri());
+    let result = server
+        .asana_get(get_params(ResourceType::TaskComments, "task123"))
+        .await
+        .unwrap();
+    let text = get_response_text(&result);
+
+    // Only comments should be returned, not assignment stories
+    assert!(text.contains("Great work!"));
+    assert!(text.contains("Thanks!"));
+    assert!(!text.contains("Assigned to John"));
+}
+
+#[tokio::test]
+async fn test_get_workspace() {
+    let mock_server = MockServer::start().await;
+
+    Mock::given(method("GET"))
+        .and(path("/workspaces/ws123"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "data": {"gid": "ws123", "name": "My Workspace", "is_organization": true}
+        })))
+        .mount(&mock_server)
+        .await;
+
+    let server = test_server(&mock_server.uri());
+    let result = server
+        .asana_get(get_params(ResourceType::Workspace, "ws123"))
+        .await
+        .unwrap();
+    let text = get_response_text(&result);
+
+    assert!(text.contains("My Workspace"));
+    assert!(text.contains("is_organization"));
+}
+
+#[tokio::test]
+async fn test_get_workspace_templates() {
+    let mock_server = MockServer::start().await;
+
+    Mock::given(method("GET"))
+        .and(path("/workspaces/ws123/project_templates"))
+        .and(NoOffset)
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "data": [
+                {"gid": "tmpl1", "name": "Sprint Template"},
+                {"gid": "tmpl2", "name": "Onboarding Template"}
+            ],
+            "next_page": null
+        })))
+        .mount(&mock_server)
+        .await;
+
+    let server = test_server(&mock_server.uri());
+    let result = server
+        .asana_get(get_params(ResourceType::WorkspaceTemplates, "ws123"))
+        .await
+        .unwrap();
+    let text = get_response_text(&result);
+
+    assert!(text.contains("Sprint Template"));
+    assert!(text.contains("Onboarding Template"));
+}
+
+#[tokio::test]
+async fn test_get_project_template() {
+    let mock_server = MockServer::start().await;
+
+    Mock::given(method("GET"))
+        .and(path("/project_templates/tmpl123"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "data": {
+                "gid": "tmpl123",
+                "name": "Sprint Template",
+                "description": "A template for sprints",
+                "requested_dates": [{"gid": "date1", "name": "Sprint Start"}],
+                "requested_roles": [{"gid": "role1", "name": "Sprint Lead"}]
+            }
+        })))
+        .mount(&mock_server)
+        .await;
+
+    let server = test_server(&mock_server.uri());
+    let result = server
+        .asana_get(get_params(ResourceType::ProjectTemplate, "tmpl123"))
+        .await
+        .unwrap();
+    let text = get_response_text(&result);
+
+    assert!(text.contains("Sprint Template"));
+    assert!(text.contains("Sprint Start"));
+    assert!(text.contains("Sprint Lead"));
+}
+
+#[tokio::test]
+async fn test_get_project_sections() {
+    let mock_server = MockServer::start().await;
+
+    Mock::given(method("GET"))
+        .and(path("/projects/proj123/sections"))
+        .and(NoOffset)
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "data": [
+                {"gid": "sec1", "name": "To Do"},
+                {"gid": "sec2", "name": "In Progress"},
+                {"gid": "sec3", "name": "Done"}
+            ],
+            "next_page": null
+        })))
+        .mount(&mock_server)
+        .await;
+
+    let server = test_server(&mock_server.uri());
+    let result = server
+        .asana_get(get_params(ResourceType::ProjectSections, "proj123"))
+        .await
+        .unwrap();
+    let text = get_response_text(&result);
+
+    assert!(text.contains("To Do"));
+    assert!(text.contains("In Progress"));
+    assert!(text.contains("Done"));
+}
+
+#[tokio::test]
+async fn test_get_section() {
+    let mock_server = MockServer::start().await;
+
+    Mock::given(method("GET"))
+        .and(path("/sections/sec123"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "data": {"gid": "sec123", "name": "In Progress", "project": {"gid": "proj1", "name": "My Project"}}
+        })))
+        .mount(&mock_server)
+        .await;
+
+    let server = test_server(&mock_server.uri());
+    let result = server
+        .asana_get(get_params(ResourceType::Section, "sec123"))
+        .await
+        .unwrap();
+    let text = get_response_text(&result);
+
+    assert!(text.contains("In Progress"));
+    assert!(text.contains("My Project"));
+}
+
+#[tokio::test]
+async fn test_get_workspace_tags() {
+    let mock_server = MockServer::start().await;
+
+    Mock::given(method("GET"))
+        .and(path("/workspaces/ws123/tags"))
+        .and(NoOffset)
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "data": [
+                {"gid": "tag1", "name": "Bug", "color": "red"},
+                {"gid": "tag2", "name": "Feature", "color": "green"}
+            ],
+            "next_page": null
+        })))
+        .mount(&mock_server)
+        .await;
+
+    let server = test_server(&mock_server.uri());
+    let result = server
+        .asana_get(get_params(ResourceType::WorkspaceTags, "ws123"))
+        .await
+        .unwrap();
+    let text = get_response_text(&result);
+
+    assert!(text.contains("Bug"));
+    assert!(text.contains("Feature"));
+}
+
+#[tokio::test]
+async fn test_get_tag() {
+    let mock_server = MockServer::start().await;
+
+    Mock::given(method("GET"))
+        .and(path("/tags/tag123"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "data": {"gid": "tag123", "name": "Priority", "color": "orange", "notes": "High priority items"}
+        })))
+        .mount(&mock_server)
+        .await;
+
+    let server = test_server(&mock_server.uri());
+    let result = server
+        .asana_get(get_params(ResourceType::Tag, "tag123"))
+        .await
+        .unwrap();
+    let text = get_response_text(&result);
+
+    assert!(text.contains("Priority"));
+    assert!(text.contains("High priority items"));
+}
+
+// ============================================================================
+// Additional Create Tests - Complete Coverage
+// ============================================================================
+
+#[tokio::test]
+async fn test_create_project_from_template() {
+    let mock_server = MockServer::start().await;
+
+    Mock::given(method("POST"))
+        .and(path("/project_templates/tmpl123/instantiateProject"))
+        .respond_with(ResponseTemplate::new(201).set_body_json(serde_json::json!({
+            "data": {
+                "gid": "job123",
+                "resource_type": "job",
+                "status": "in_progress",
+                "new_project": {"gid": "proj456", "name": "New Sprint"}
+            }
+        })))
+        .mount(&mock_server)
+        .await;
+
+    let server = test_server(&mock_server.uri());
+    let params = Parameters(CreateParams {
+        resource_type: CreateResourceType::ProjectFromTemplate,
+        template_gid: Some("tmpl123".to_string()),
+        name: Some("New Sprint".to_string()),
+        team_gid: Some("team1".to_string()),
+        workspace_gid: None,
+        project_gid: None,
+        task_gid: None,
+        parent_gid: None,
+        requested_dates: None,
+        requested_roles: None,
+        notes: None,
+        html_notes: None,
+        color: None,
+        due_on: None,
+        start_on: None,
+        assignee: None,
+        privacy_setting: None,
+        public: None,
+        status_type: None,
+        title: None,
+        text: None,
+        custom_fields: None,
+    });
+
+    let result = server.asana_create(params).await.unwrap();
+    let text = get_response_text(&result);
+
+    assert!(text.contains("job123"));
+}
+
+#[tokio::test]
+async fn test_create_portfolio() {
+    let mock_server = MockServer::start().await;
+
+    Mock::given(method("POST"))
+        .and(path("/portfolios"))
+        .respond_with(ResponseTemplate::new(201).set_body_json(serde_json::json!({
+            "data": {"gid": "port123", "name": "Q1 Portfolio", "color": "blue"}
+        })))
+        .mount(&mock_server)
+        .await;
+
+    let server = test_server(&mock_server.uri());
+    let params = Parameters(CreateParams {
+        resource_type: CreateResourceType::Portfolio,
+        workspace_gid: Some("ws123".to_string()),
+        name: Some("Q1 Portfolio".to_string()),
+        color: Some("blue".to_string()),
+        public: Some(true),
+        project_gid: None,
+        task_gid: None,
+        team_gid: None,
+        parent_gid: None,
+        template_gid: None,
+        requested_dates: None,
+        requested_roles: None,
+        notes: None,
+        html_notes: None,
+        due_on: None,
+        start_on: None,
+        assignee: None,
+        privacy_setting: None,
+        status_type: None,
+        title: None,
+        text: None,
+        custom_fields: None,
+    });
+
+    let result = server.asana_create(params).await.unwrap();
+    let text = get_response_text(&result);
+
+    assert!(text.contains("Q1 Portfolio"));
+}
+
+#[tokio::test]
+async fn test_create_section() {
+    let mock_server = MockServer::start().await;
+
+    Mock::given(method("POST"))
+        .and(path("/projects/proj123/sections"))
+        .respond_with(ResponseTemplate::new(201).set_body_json(serde_json::json!({
+            "data": {"gid": "sec123", "name": "New Section"}
+        })))
+        .mount(&mock_server)
+        .await;
+
+    let server = test_server(&mock_server.uri());
+    let params = Parameters(CreateParams {
+        resource_type: CreateResourceType::Section,
+        project_gid: Some("proj123".to_string()),
+        name: Some("New Section".to_string()),
+        workspace_gid: None,
+        task_gid: None,
+        team_gid: None,
+        parent_gid: None,
+        template_gid: None,
+        requested_dates: None,
+        requested_roles: None,
+        notes: None,
+        html_notes: None,
+        color: None,
+        due_on: None,
+        start_on: None,
+        assignee: None,
+        privacy_setting: None,
+        public: None,
+        status_type: None,
+        title: None,
+        text: None,
+        custom_fields: None,
+    });
+
+    let result = server.asana_create(params).await.unwrap();
+    let text = get_response_text(&result);
+
+    assert!(text.contains("New Section"));
+}
+
+#[tokio::test]
+async fn test_create_status_update() {
+    let mock_server = MockServer::start().await;
+
+    Mock::given(method("POST"))
+        .and(path("/status_updates"))
+        .respond_with(ResponseTemplate::new(201).set_body_json(serde_json::json!({
+            "data": {
+                "gid": "status123",
+                "title": "Week 1 Update",
+                "text": "Everything on track",
+                "status_type": "on_track"
+            }
+        })))
+        .mount(&mock_server)
+        .await;
+
+    let server = test_server(&mock_server.uri());
+    let params = Parameters(CreateParams {
+        resource_type: CreateResourceType::StatusUpdate,
+        parent_gid: Some("proj123".to_string()),
+        status_type: Some("on_track".to_string()),
+        title: Some("Week 1 Update".to_string()),
+        text: Some("Everything on track".to_string()),
+        workspace_gid: None,
+        project_gid: None,
+        task_gid: None,
+        team_gid: None,
+        template_gid: None,
+        requested_dates: None,
+        requested_roles: None,
+        name: None,
+        notes: None,
+        html_notes: None,
+        color: None,
+        due_on: None,
+        start_on: None,
+        assignee: None,
+        privacy_setting: None,
+        public: None,
+        custom_fields: None,
+    });
+
+    let result = server.asana_create(params).await.unwrap();
+    let text = get_response_text(&result);
+
+    assert!(text.contains("Week 1 Update"));
+    assert!(text.contains("on_track"));
+}
+
+#[tokio::test]
+async fn test_create_tag() {
+    let mock_server = MockServer::start().await;
+
+    Mock::given(method("POST"))
+        .and(path("/tags"))
+        .respond_with(ResponseTemplate::new(201).set_body_json(serde_json::json!({
+            "data": {"gid": "tag123", "name": "Urgent", "color": "red"}
+        })))
+        .mount(&mock_server)
+        .await;
+
+    let server = test_server(&mock_server.uri());
+    let params = Parameters(CreateParams {
+        resource_type: CreateResourceType::Tag,
+        workspace_gid: Some("ws123".to_string()),
+        name: Some("Urgent".to_string()),
+        color: Some("red".to_string()),
+        notes: Some("High priority items".to_string()),
+        project_gid: None,
+        task_gid: None,
+        team_gid: None,
+        parent_gid: None,
+        template_gid: None,
+        requested_dates: None,
+        requested_roles: None,
+        html_notes: None,
+        due_on: None,
+        start_on: None,
+        assignee: None,
+        privacy_setting: None,
+        public: None,
+        status_type: None,
+        title: None,
+        text: None,
+        custom_fields: None,
+    });
+
+    let result = server.asana_create(params).await.unwrap();
+    let text = get_response_text(&result);
+
+    assert!(text.contains("Urgent"));
+}
+
+// ============================================================================
+// Additional Update Tests - Complete Coverage
+// ============================================================================
+
+#[tokio::test]
+async fn test_update_project() {
+    let mock_server = MockServer::start().await;
+
+    Mock::given(method("PUT"))
+        .and(path("/projects/proj123"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "data": {"gid": "proj123", "name": "Updated Project", "archived": true}
+        })))
+        .mount(&mock_server)
+        .await;
+
+    let server = test_server(&mock_server.uri());
+    let params = Parameters(UpdateParams {
+        resource_type: UpdateResourceType::Project,
+        gid: "proj123".to_string(),
+        name: Some("Updated Project".to_string()),
+        archived: Some(true),
+        notes: None,
+        html_notes: None,
+        completed: None,
+        due_on: None,
+        start_on: None,
+        assignee: None,
+        color: None,
+        privacy_setting: None,
+        public: None,
+        text: None,
+        custom_fields: None,
+    });
+
+    let result = server.asana_update(params).await.unwrap();
+    let text = get_response_text(&result);
+
+    assert!(text.contains("Updated Project"));
+}
+
+#[tokio::test]
+async fn test_update_portfolio() {
+    let mock_server = MockServer::start().await;
+
+    Mock::given(method("PUT"))
+        .and(path("/portfolios/port123"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "data": {"gid": "port123", "name": "Updated Portfolio", "color": "green"}
+        })))
+        .mount(&mock_server)
+        .await;
+
+    let server = test_server(&mock_server.uri());
+    let params = Parameters(UpdateParams {
+        resource_type: UpdateResourceType::Portfolio,
+        gid: "port123".to_string(),
+        name: Some("Updated Portfolio".to_string()),
+        color: Some("green".to_string()),
+        public: Some(true),
+        notes: None,
+        html_notes: None,
+        completed: None,
+        due_on: None,
+        start_on: None,
+        assignee: None,
+        archived: None,
+        privacy_setting: None,
+        text: None,
+        custom_fields: None,
+    });
+
+    let result = server.asana_update(params).await.unwrap();
+    let text = get_response_text(&result);
+
+    assert!(text.contains("Updated Portfolio"));
+}
+
+#[tokio::test]
+async fn test_update_tag() {
+    let mock_server = MockServer::start().await;
+
+    Mock::given(method("PUT"))
+        .and(path("/tags/tag123"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "data": {"gid": "tag123", "name": "Critical", "color": "red"}
+        })))
+        .mount(&mock_server)
+        .await;
+
+    let server = test_server(&mock_server.uri());
+    let params = Parameters(UpdateParams {
+        resource_type: UpdateResourceType::Tag,
+        gid: "tag123".to_string(),
+        name: Some("Critical".to_string()),
+        color: Some("red".to_string()),
+        notes: None,
+        html_notes: None,
+        completed: None,
+        due_on: None,
+        start_on: None,
+        assignee: None,
+        archived: None,
+        privacy_setting: None,
+        public: None,
+        text: None,
+        custom_fields: None,
+    });
+
+    let result = server.asana_update(params).await.unwrap();
+    let text = get_response_text(&result);
+
+    assert!(text.contains("Critical"));
+}
+
+#[tokio::test]
+async fn test_update_comment() {
+    let mock_server = MockServer::start().await;
+
+    Mock::given(method("PUT"))
+        .and(path("/stories/story123"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "data": {"gid": "story123", "text": "Updated comment text"}
+        })))
+        .mount(&mock_server)
+        .await;
+
+    let server = test_server(&mock_server.uri());
+    let params = Parameters(UpdateParams {
+        resource_type: UpdateResourceType::Comment,
+        gid: "story123".to_string(),
+        text: Some("Updated comment text".to_string()),
+        name: None,
+        notes: None,
+        html_notes: None,
+        completed: None,
+        due_on: None,
+        start_on: None,
+        assignee: None,
+        color: None,
+        archived: None,
+        privacy_setting: None,
+        public: None,
+        custom_fields: None,
+    });
+
+    let result = server.asana_update(params).await.unwrap();
+    let text = get_response_text(&result);
+
+    assert!(text.contains("Updated comment text"));
+}
+
+// ============================================================================
+// Additional Link Tests - Complete Coverage
+// ============================================================================
+
+#[tokio::test]
+async fn test_link_remove_task_from_project() {
+    let mock_server = MockServer::start().await;
+
+    Mock::given(method("POST"))
+        .and(path("/tasks/task123/removeProject"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({"data": {}})))
+        .mount(&mock_server)
+        .await;
+
+    let server = test_server(&mock_server.uri());
+    let params = Parameters(LinkParams {
+        action: LinkAction::Remove,
+        relationship: RelationshipType::TaskProject,
+        target_gid: "task123".to_string(),
+        item_gid: Some("proj456".to_string()),
+        item_gids: None,
+        section_gid: None,
+        insert_before: None,
+        insert_after: None,
+    });
+
+    let result = server.asana_link(params).await.unwrap();
+    let text = get_response_text(&result);
+
+    assert!(text.contains("success"));
+}
+
+#[tokio::test]
+async fn test_link_add_task_tag() {
+    let mock_server = MockServer::start().await;
+
+    Mock::given(method("POST"))
+        .and(path("/tasks/task123/addTag"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({"data": {}})))
+        .mount(&mock_server)
+        .await;
+
+    let server = test_server(&mock_server.uri());
+    let params = Parameters(LinkParams {
+        action: LinkAction::Add,
+        relationship: RelationshipType::TaskTag,
+        target_gid: "task123".to_string(),
+        item_gid: Some("tag456".to_string()),
+        item_gids: None,
+        section_gid: None,
+        insert_before: None,
+        insert_after: None,
+    });
+
+    let result = server.asana_link(params).await.unwrap();
+    let text = get_response_text(&result);
+
+    assert!(text.contains("Tag added"));
+}
+
+#[tokio::test]
+async fn test_link_remove_task_tag() {
+    let mock_server = MockServer::start().await;
+
+    Mock::given(method("POST"))
+        .and(path("/tasks/task123/removeTag"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({"data": {}})))
+        .mount(&mock_server)
+        .await;
+
+    let server = test_server(&mock_server.uri());
+    let params = Parameters(LinkParams {
+        action: LinkAction::Remove,
+        relationship: RelationshipType::TaskTag,
+        target_gid: "task123".to_string(),
+        item_gid: Some("tag456".to_string()),
+        item_gids: None,
+        section_gid: None,
+        insert_before: None,
+        insert_after: None,
+    });
+
+    let result = server.asana_link(params).await.unwrap();
+    let text = get_response_text(&result);
+
+    assert!(text.contains("Tag removed"));
+}
+
+#[tokio::test]
+async fn test_link_set_task_parent() {
+    let mock_server = MockServer::start().await;
+
+    Mock::given(method("POST"))
+        .and(path("/tasks/task123/setParent"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "data": {"gid": "task123", "parent": {"gid": "parent456"}}
+        })))
+        .mount(&mock_server)
+        .await;
+
+    let server = test_server(&mock_server.uri());
+    let params = Parameters(LinkParams {
+        action: LinkAction::Add,
+        relationship: RelationshipType::TaskParent,
+        target_gid: "task123".to_string(),
+        item_gid: Some("parent456".to_string()),
+        item_gids: None,
+        section_gid: None,
+        insert_before: None,
+        insert_after: None,
+    });
+
+    let result = server.asana_link(params).await.unwrap();
+    let text = get_response_text(&result);
+
+    assert!(text.contains("parent456"));
+}
+
+#[tokio::test]
+async fn test_link_add_dependents() {
+    let mock_server = MockServer::start().await;
+
+    Mock::given(method("POST"))
+        .and(path("/tasks/task123/addDependents"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({"data": {}})))
+        .mount(&mock_server)
+        .await;
+
+    let server = test_server(&mock_server.uri());
+    let params = Parameters(LinkParams {
+        action: LinkAction::Add,
+        relationship: RelationshipType::TaskDependent,
+        target_gid: "task123".to_string(),
+        item_gid: Some("dep456".to_string()),
+        item_gids: None,
+        section_gid: None,
+        insert_before: None,
+        insert_after: None,
+    });
+
+    let result = server.asana_link(params).await.unwrap();
+    let text = get_response_text(&result);
+
+    assert!(text.contains("Dependents added"));
+}
+
+#[tokio::test]
+async fn test_link_add_task_follower() {
+    let mock_server = MockServer::start().await;
+
+    Mock::given(method("POST"))
+        .and(path("/tasks/task123/addFollowers"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({"data": {}})))
+        .mount(&mock_server)
+        .await;
+
+    let server = test_server(&mock_server.uri());
+    let params = Parameters(LinkParams {
+        action: LinkAction::Add,
+        relationship: RelationshipType::TaskFollower,
+        target_gid: "task123".to_string(),
+        item_gid: Some("user456".to_string()),
+        item_gids: None,
+        section_gid: None,
+        insert_before: None,
+        insert_after: None,
+    });
+
+    let result = server.asana_link(params).await.unwrap();
+    let text = get_response_text(&result);
+
+    assert!(text.contains("Followers added"));
+}
+
+#[tokio::test]
+async fn test_link_add_portfolio_item() {
+    let mock_server = MockServer::start().await;
+
+    Mock::given(method("POST"))
+        .and(path("/portfolios/port123/addItem"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({"data": {}})))
+        .mount(&mock_server)
+        .await;
+
+    let server = test_server(&mock_server.uri());
+    let params = Parameters(LinkParams {
+        action: LinkAction::Add,
+        relationship: RelationshipType::PortfolioItem,
+        target_gid: "port123".to_string(),
+        item_gid: Some("proj456".to_string()),
+        item_gids: None,
+        section_gid: None,
+        insert_before: None,
+        insert_after: None,
+    });
+
+    let result = server.asana_link(params).await.unwrap();
+    let text = get_response_text(&result);
+
+    assert!(text.contains("Item added to portfolio"));
+}
+
+#[tokio::test]
+async fn test_link_remove_portfolio_item() {
+    let mock_server = MockServer::start().await;
+
+    Mock::given(method("POST"))
+        .and(path("/portfolios/port123/removeItem"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({"data": {}})))
+        .mount(&mock_server)
+        .await;
+
+    let server = test_server(&mock_server.uri());
+    let params = Parameters(LinkParams {
+        action: LinkAction::Remove,
+        relationship: RelationshipType::PortfolioItem,
+        target_gid: "port123".to_string(),
+        item_gid: Some("proj456".to_string()),
+        item_gids: None,
+        section_gid: None,
+        insert_before: None,
+        insert_after: None,
+    });
+
+    let result = server.asana_link(params).await.unwrap();
+    let text = get_response_text(&result);
+
+    assert!(text.contains("Item removed from portfolio"));
+}
+
+#[tokio::test]
+async fn test_link_add_portfolio_member() {
+    let mock_server = MockServer::start().await;
+
+    Mock::given(method("POST"))
+        .and(path("/portfolios/port123/addMembers"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({"data": {}})))
+        .mount(&mock_server)
+        .await;
+
+    let server = test_server(&mock_server.uri());
+    let params = Parameters(LinkParams {
+        action: LinkAction::Add,
+        relationship: RelationshipType::PortfolioMember,
+        target_gid: "port123".to_string(),
+        item_gid: Some("user456".to_string()),
+        item_gids: None,
+        section_gid: None,
+        insert_before: None,
+        insert_after: None,
+    });
+
+    let result = server.asana_link(params).await.unwrap();
+    let text = get_response_text(&result);
+
+    assert!(text.contains("Members added to portfolio"));
+}
+
+#[tokio::test]
+async fn test_link_add_project_member() {
+    let mock_server = MockServer::start().await;
+
+    Mock::given(method("POST"))
+        .and(path("/projects/proj123/addMembers"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({"data": {}})))
+        .mount(&mock_server)
+        .await;
+
+    let server = test_server(&mock_server.uri());
+    let params = Parameters(LinkParams {
+        action: LinkAction::Add,
+        relationship: RelationshipType::ProjectMember,
+        target_gid: "proj123".to_string(),
+        item_gid: Some("user456".to_string()),
+        item_gids: None,
+        section_gid: None,
+        insert_before: None,
+        insert_after: None,
+    });
+
+    let result = server.asana_link(params).await.unwrap();
+    let text = get_response_text(&result);
+
+    assert!(text.contains("Members added to project"));
+}
+
+#[tokio::test]
+async fn test_link_add_project_follower() {
+    let mock_server = MockServer::start().await;
+
+    Mock::given(method("POST"))
+        .and(path("/projects/proj123/addFollowers"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({"data": {}})))
+        .mount(&mock_server)
+        .await;
+
+    let server = test_server(&mock_server.uri());
+    let params = Parameters(LinkParams {
+        action: LinkAction::Add,
+        relationship: RelationshipType::ProjectFollower,
+        target_gid: "proj123".to_string(),
+        item_gid: Some("user456".to_string()),
+        item_gids: None,
+        section_gid: None,
+        insert_before: None,
+        insert_after: None,
+    });
+
+    let result = server.asana_link(params).await.unwrap();
+    let text = get_response_text(&result);
+
+    assert!(text.contains("Followers added to project"));
+}
