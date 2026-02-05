@@ -34,6 +34,9 @@ pub use client::AsanaClient;
 pub use error::Error;
 pub use server::AsanaServer;
 
+// Re-export params module for schema inspection
+pub use server::params;
+
 // Re-export commonly used types
 pub use types::{
     FavoriteItem, FavoritesResponse, Job, PortfolioItem, PortfolioItemExpanded, PortfolioWithItems,

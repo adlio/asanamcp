@@ -3,7 +3,7 @@
 
 .DEFAULT_GOAL := help
 
-.PHONY: help test coverage coverage-html build build-release install clean fmt fmt-check lint check doc doc-check all ci ensure-tools
+.PHONY: help test coverage coverage-html build build-release install clean fmt fmt-check lint check doc doc-check all ci ensure-tools inspect schema
 
 # Tool installation helpers
 CARGO_NEXTEST := $(shell command -v cargo-nextest 2>/dev/null)
@@ -64,3 +64,9 @@ doc-check: ## Check docs build without warnings
 all: ensure-tools fmt lint build test ## Format, lint, build, and test
 
 ci: ensure-tools fmt-check lint build doc-check test ## Check formatting, lint, build, docs, test (for CI/hooks)
+
+inspect: build ## Open MCP Inspector to test server interactively
+	npx @modelcontextprotocol/inspector cargo run
+
+schema: build ## Dump tool schemas to stdout
+	cargo run -- --schema
