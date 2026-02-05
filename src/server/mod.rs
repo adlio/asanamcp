@@ -1106,6 +1106,9 @@ impl AsanaServer {
 
             UpdateResourceType::ProjectBrief => {
                 let mut data = serde_json::Map::new();
+                if let Some(title) = p.title {
+                    data.insert("title".to_string(), serde_json::json!(title));
+                }
                 if let Some(text) = p.text {
                     data.insert("text".to_string(), serde_json::json!(text));
                 }
@@ -1115,7 +1118,7 @@ impl AsanaServer {
 
                 if data.is_empty() {
                     return Err(validation_error(
-                        "text or html_text is required for project_brief update",
+                        "at least one of title, text, or html_text is required for project_brief update",
                     ));
                 }
 
