@@ -333,6 +333,41 @@ impl AsanaServer {
                     .map_err(|e| error_to_mcp("Failed to get tag", e))?;
                 json_response(&tag)
             }
+
+            ResourceType::MyTasks => {
+                // First get the user's task list for this workspace
+                let task_list: Resource = self
+                    .client
+                    .get(
+                        "/users/me/user_task_list",
+                        &[("workspace", p.gid.as_str()), ("opt_fields", "gid")],
+                    )
+                    .await
+                    .map_err(|e| error_to_mcp("Failed to get user task list", e))?;
+
+                // Then get tasks from that list
+                let tasks: Vec<Resource> = self
+                    .client
+                    .get_all(
+                        &format!("/user_task_lists/{}/tasks", task_list.gid),
+                        &[("opt_fields", RECURSIVE_TASK_FIELDS)],
+                    )
+                    .await
+                    .map_err(|e| error_to_mcp("Failed to get tasks", e))?;
+                json_response(&tasks)
+            }
+
+            ResourceType::WorkspaceProjects => {
+                let projects: Vec<Resource> = self
+                    .client
+                    .get_all(
+                        &format!("/workspaces/{}/projects", p.gid),
+                        &[("opt_fields", PROJECT_FIELDS)],
+                    )
+                    .await
+                    .map_err(|e| error_to_mcp("Failed to get projects", e))?;
+                json_response(&projects)
+            }
         }
     }
 

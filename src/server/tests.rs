@@ -1294,6 +1294,74 @@ async fn test_get_tag() {
     assert!(text.contains("High priority items"));
 }
 
+#[tokio::test]
+async fn test_get_my_tasks() {
+    let mock_server = MockServer::start().await;
+
+    // First call gets the user's task list
+    Mock::given(method("GET"))
+        .and(path("/users/me/user_task_list"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "data": {"gid": "tasklist123"}
+        })))
+        .mount(&mock_server)
+        .await;
+
+    // Second call gets tasks from that list
+    Mock::given(method("GET"))
+        .and(path("/user_task_lists/tasklist123/tasks"))
+        .and(NoOffset)
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "data": [
+                {"gid": "task1", "name": "My first task", "completed": false},
+                {"gid": "task2", "name": "My second task", "completed": true}
+            ],
+            "next_page": null
+        })))
+        .mount(&mock_server)
+        .await;
+
+    let server = test_server(&mock_server.uri());
+    let result = server
+        .asana_get(get_params(ResourceType::MyTasks, "ws123"))
+        .await
+        .unwrap();
+    let text = get_response_text(&result);
+
+    assert!(text.contains("My first task"));
+    assert!(text.contains("My second task"));
+}
+
+#[tokio::test]
+async fn test_get_workspace_projects() {
+    let mock_server = MockServer::start().await;
+
+    Mock::given(method("GET"))
+        .and(path("/workspaces/ws123/projects"))
+        .and(NoOffset)
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "data": [
+                {"gid": "proj1", "name": "Project Alpha"},
+                {"gid": "proj2", "name": "Project Beta"},
+                {"gid": "proj3", "name": "1:1 with Alice"}
+            ],
+            "next_page": null
+        })))
+        .mount(&mock_server)
+        .await;
+
+    let server = test_server(&mock_server.uri());
+    let result = server
+        .asana_get(get_params(ResourceType::WorkspaceProjects, "ws123"))
+        .await
+        .unwrap();
+    let text = get_response_text(&result);
+
+    assert!(text.contains("Project Alpha"));
+    assert!(text.contains("Project Beta"));
+    assert!(text.contains("1:1 with Alice"));
+}
+
 // ============================================================================
 // Additional Create Tests - Complete Coverage
 // ============================================================================

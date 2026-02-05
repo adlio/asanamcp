@@ -62,7 +62,9 @@ Fetch any Asana resource with recursive traversal support.
 | `project` | project GID | |
 | `portfolio` | portfolio GID | `depth`: traversal depth |
 | `task` | task GID | `include_subtasks`, `include_dependencies`, `include_comments` |
+| `my_tasks` | workspace GID | Tasks assigned to current user |
 | `workspace_favorites` | workspace GID | `include_projects`, `include_portfolios` |
+| `workspace_projects` | workspace GID | All projects in workspace |
 | `project_tasks` | project/portfolio GID | `subtask_depth` |
 | `task_subtasks` | task GID | |
 | `task_comments` | task GID | |

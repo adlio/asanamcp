@@ -13,11 +13,12 @@ pub struct WorkspacesParams {}
 /// Note: The `gid` parameter meaning varies by resource type:
 /// - `project`, `portfolio`, `task`, `workspace`, `project_template`, `section`, `tag`:
 ///   GID of that specific resource
-/// - `workspace_favorites`: GID of the workspace to get favorites from
+/// - `workspace_favorites`, `workspace_projects`, `workspace_templates`, `workspace_tags`:
+///   GID of the workspace
+/// - `my_tasks`: GID of the workspace to get user's assigned tasks from
 /// - `project_tasks`: GID of the project or portfolio to get tasks from
 /// - `task_subtasks`, `task_comments`: GID of the parent task
 /// - `project_status_updates`: GID of the project or portfolio
-/// - `workspace_templates`, `workspace_tags`: GID of the workspace
 /// - `project_sections`: GID of the project
 /// - `all_workspaces`: GID is ignored
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, JsonSchema)]
@@ -64,6 +65,12 @@ pub enum ResourceType {
     WorkspaceTags,
     /// Get a single tag by GID
     Tag,
+    /// Get tasks assigned to the current user in a workspace (gid = workspace GID)
+    #[serde(alias = "my_assigned_tasks")]
+    MyTasks,
+    /// List all projects in a workspace (gid = workspace GID)
+    #[serde(alias = "projects")]
+    WorkspaceProjects,
 }
 
 /// Parameters for the universal get tool.
