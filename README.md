@@ -42,6 +42,36 @@ cd asanamcp
 make install
 ```
 
+## After Installation
+
+The binary is installed to `~/.cargo/bin/asanamcp`. Ensure `~/.cargo/bin` is in your PATH:
+
+```bash
+# Check installation
+which asanamcp
+# Should output: /Users/<you>/.cargo/bin/asanamcp
+
+# Verify it runs
+asanamcp --help
+```
+
+### Testing the Server
+
+Before configuring Claude Desktop, verify the server works:
+
+```bash
+# Dump tool schemas (useful for debugging)
+asanamcp --schema
+
+# Dump a specific tool's schema
+asanamcp --schema get
+
+# Launch the MCP Inspector (interactive web UI)
+make inspect
+```
+
+The MCP Inspector (`make inspect`) opens a browser-based UI where you can see all available tools, their schemas, and test API calls interactively. This is useful for troubleshooting.
+
 ## Tools
 
 | Tool | Description |
@@ -67,7 +97,7 @@ Fetch any Asana resource with recursive traversal support.
 | `portfolio` | portfolio GID | `depth`: traversal depth |
 | `task` | task GID | `include_subtasks`, `include_dependencies`, `include_comments` |
 | `my_tasks` | workspace GID* | Tasks assigned to current user |
-| `workspace_favorites` | workspace GID* | `include_projects`, `include_portfolios` |
+| `workspace_favorites` | workspace GID* | `depth` for portfolio traversal |
 | `workspace_projects` | workspace GID* | All projects in workspace |
 | `workspace_templates` | workspace GID* | |
 | `workspace_tags` | workspace GID* | |
@@ -190,6 +220,8 @@ make test       # Run tests
 make coverage   # Coverage report
 make fmt        # Format code
 make lint       # Run clippy
+make inspect    # Open MCP Inspector web UI
+make schema     # Dump tool schemas to stdout
 ```
 
 ## License
