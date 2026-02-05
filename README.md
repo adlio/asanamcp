@@ -27,7 +27,16 @@ MCP server for the Asana API.
 3. Install:
 
 ```bash
+# From crates.io (when published)
+cargo install asanamcp
+
+# From GitHub
 cargo install --git https://github.com/adlio/asanamcp
+
+# From local clone
+git clone https://github.com/adlio/asanamcp
+cd asanamcp
+make install
 ```
 
 ## Tools
