@@ -76,11 +76,32 @@ pub fn validation_error(message: &str) -> McpError {
     McpError::new(ErrorCode::INVALID_PARAMS, message.to_string(), None)
 }
 
+/// Require a GID, returning a validation error if not provided or empty.
+pub fn require_gid(gid: &Option<String>, resource_type: &str) -> Result<String, McpError> {
+    match gid.as_ref().filter(|s| !s.is_empty()) {
+        Some(g) => Ok(g.clone()),
+        None => Err(validation_error(&format!(
+            "gid is required for {}",
+            resource_type
+        ))),
+    }
+}
+
 /// Create a success response with a message.
 pub fn success_response(message: &str) -> Result<CallToolResult, McpError> {
     Ok(CallToolResult::success(vec![Content::text(
         serde_json::json!({"success": true, "message": message}).to_string(),
     )]))
+}
+
+/// Resolve opt_fields: use provided fields if present, otherwise use default.
+///
+/// If `provided` contains fields, joins them with commas. Otherwise returns the default.
+pub fn resolve_opt_fields(provided: &Option<Vec<String>>, default: &str) -> String {
+    match provided {
+        Some(fields) if !fields.is_empty() => fields.join(","),
+        _ => default.to_string(),
+    }
 }
 
 /// Extract item GIDs from link parameters.

@@ -14,6 +14,21 @@ impl Match for NoOffset {
     }
 }
 
+/// Custom matcher for query parameter value.
+struct QueryParam {
+    key: &'static str,
+    value: &'static str,
+}
+
+impl Match for QueryParam {
+    fn matches(&self, request: &Request) -> bool {
+        request
+            .url
+            .query_pairs()
+            .any(|(k, v)| k == self.key && v == self.value)
+    }
+}
+
 fn test_server(mock_uri: &str) -> AsanaServer {
     let client = AsanaClient::new("test-token")
         .unwrap()
@@ -31,14 +46,13 @@ fn get_response_text(result: &CallToolResult) -> &str {
 fn get_params(resource_type: ResourceType, gid: &str) -> Parameters<GetParams> {
     Parameters(GetParams {
         resource_type,
-        gid: gid.to_string(),
+        gid: Some(gid.to_string()),
         depth: None,
         subtask_depth: None,
         include_subtasks: None,
         include_dependencies: None,
         include_comments: None,
-        include_projects: None,
-        include_portfolios: None,
+        opt_fields: None,
     })
 }
 
@@ -372,14 +386,13 @@ async fn test_get_task_without_context() {
     let server = test_server(&mock_server.uri());
     let params = Parameters(GetParams {
         resource_type: ResourceType::Task,
-        gid: "task123".to_string(),
+        gid: Some("task123".to_string()),
         depth: None,
         subtask_depth: None,
         include_subtasks: Some(false),
         include_dependencies: Some(false),
         include_comments: Some(false),
-        include_projects: None,
-        include_portfolios: None,
+        opt_fields: None,
     });
 
     let result = server.asana_get(params).await.unwrap();
@@ -587,6 +600,7 @@ async fn test_create_task_success() {
         custom_fields: None,
         source_gid: None,
         include: None,
+        opt_fields: None,
     });
 
     let result = server.asana_create(params).await.unwrap();
@@ -626,6 +640,7 @@ async fn test_create_subtask_requires_task_gid() {
         custom_fields: None,
         source_gid: None,
         include: None,
+        opt_fields: None,
     });
 
     let result = server.asana_create(params).await;
@@ -675,6 +690,7 @@ async fn test_create_project_success() {
         custom_fields: None,
         source_gid: None,
         include: None,
+        opt_fields: None,
     });
 
     let result = server.asana_create(params).await.unwrap();
@@ -728,6 +744,7 @@ async fn test_create_comment_success() {
         custom_fields: None,
         source_gid: None,
         include: None,
+        opt_fields: None,
     });
 
     let result = server.asana_create(params).await.unwrap();
@@ -775,6 +792,7 @@ async fn test_update_task_success() {
         title: None,
         status_type: None,
         custom_fields: None,
+        opt_fields: None,
     });
 
     let result = server.asana_update(params).await.unwrap();
@@ -807,6 +825,7 @@ async fn test_update_section_requires_name() {
         title: None,
         status_type: None,
         custom_fields: None,
+        opt_fields: None,
     });
 
     let result = server.asana_update(params).await;
@@ -1000,13 +1019,33 @@ async fn test_resource_type_new_name_workspace_favorites() {
 async fn test_get_workspace_favorites() {
     let mock_server = MockServer::start().await;
 
-    // Mock favorites list
+    // Mock favorite projects list (Asana API requires resource_type parameter)
     Mock::given(method("GET"))
         .and(path("/users/me/favorites"))
+        .and(QueryParam {
+            key: "resource_type",
+            value: "project",
+        })
         .and(NoOffset)
         .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
             "data": [
-                {"gid": "proj1", "resource_type": "project", "name": "My Project"},
+                {"gid": "proj1", "resource_type": "project", "name": "My Project"}
+            ],
+            "next_page": null
+        })))
+        .mount(&mock_server)
+        .await;
+
+    // Mock favorite portfolios list
+    Mock::given(method("GET"))
+        .and(path("/users/me/favorites"))
+        .and(QueryParam {
+            key: "resource_type",
+            value: "portfolio",
+        })
+        .and(NoOffset)
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "data": [
                 {"gid": "port1", "resource_type": "portfolio", "name": "My Portfolio"}
             ],
             "next_page": null
@@ -1045,19 +1084,19 @@ async fn test_get_workspace_favorites() {
     let server = test_server(&mock_server.uri());
     let params = Parameters(GetParams {
         resource_type: ResourceType::WorkspaceFavorites,
-        gid: "ws123".to_string(),
+        gid: Some("ws123".to_string()),
         depth: Some(0),
         subtask_depth: None,
         include_subtasks: None,
         include_dependencies: None,
         include_comments: None,
-        include_projects: Some(true),
-        include_portfolios: Some(true),
+        opt_fields: None,
     });
 
     let result = server.asana_get(params).await.unwrap();
     let text = get_response_text(&result);
 
+    // Response should include both projects and portfolios with type info
     assert!(text.contains("My Project"));
     assert!(text.contains("My Portfolio"));
 }
@@ -1421,6 +1460,7 @@ async fn test_create_project_from_template() {
         custom_fields: None,
         source_gid: None,
         include: None,
+        opt_fields: None,
     });
 
     let result = server.asana_create(params).await.unwrap();
@@ -1467,6 +1507,7 @@ async fn test_create_portfolio() {
         custom_fields: None,
         source_gid: None,
         include: None,
+        opt_fields: None,
     });
 
     let result = server.asana_create(params).await.unwrap();
@@ -1513,6 +1554,7 @@ async fn test_create_section() {
         custom_fields: None,
         source_gid: None,
         include: None,
+        opt_fields: None,
     });
 
     let result = server.asana_create(params).await.unwrap();
@@ -1564,6 +1606,7 @@ async fn test_create_status_update() {
         custom_fields: None,
         source_gid: None,
         include: None,
+        opt_fields: None,
     });
 
     let result = server.asana_create(params).await.unwrap();
@@ -1611,6 +1654,7 @@ async fn test_create_tag() {
         custom_fields: None,
         source_gid: None,
         include: None,
+        opt_fields: None,
     });
 
     let result = server.asana_create(params).await.unwrap();
@@ -1654,6 +1698,7 @@ async fn test_update_project() {
         title: None,
         status_type: None,
         custom_fields: None,
+        opt_fields: None,
     });
 
     let result = server.asana_update(params).await.unwrap();
@@ -1693,6 +1738,7 @@ async fn test_update_portfolio() {
         title: None,
         status_type: None,
         custom_fields: None,
+        opt_fields: None,
     });
 
     let result = server.asana_update(params).await.unwrap();
@@ -1732,6 +1778,7 @@ async fn test_update_tag() {
         title: None,
         status_type: None,
         custom_fields: None,
+        opt_fields: None,
     });
 
     let result = server.asana_update(params).await.unwrap();
@@ -1771,6 +1818,7 @@ async fn test_update_comment() {
         title: None,
         status_type: None,
         custom_fields: None,
+        opt_fields: None,
     });
 
     let result = server.asana_update(params).await.unwrap();
@@ -1815,6 +1863,7 @@ async fn test_update_status_update() {
         privacy_setting: None,
         public: None,
         custom_fields: None,
+        opt_fields: None,
     });
 
     let result = server.asana_update(params).await.unwrap();
@@ -2418,6 +2467,7 @@ async fn test_create_project_duplicate() {
         title: None,
         text: None,
         custom_fields: None,
+        opt_fields: None,
     });
 
     let result = server.asana_create(params).await.unwrap();
@@ -2457,6 +2507,7 @@ async fn test_create_project_duplicate_requires_source_gid() {
         text: None,
         custom_fields: None,
         include: None,
+        opt_fields: None,
     });
 
     let result = server.asana_create(params).await;
@@ -2507,6 +2558,7 @@ async fn test_create_task_duplicate() {
         title: None,
         text: None,
         custom_fields: None,
+        opt_fields: None,
     });
 
     let result = server.asana_create(params).await.unwrap();
@@ -2546,6 +2598,7 @@ async fn test_create_task_duplicate_requires_source_gid() {
         text: None,
         custom_fields: None,
         include: None,
+        opt_fields: None,
     });
 
     let result = server.asana_create(params).await;
@@ -2594,6 +2647,7 @@ async fn test_search_basic() {
         portfolios: None,
         sort_by: None,
         sort_ascending: None,
+        opt_fields: None,
     });
 
     let result = server.asana_search(params).await.unwrap();
@@ -2638,6 +2692,7 @@ async fn test_search_with_assignee_me() {
         portfolios: None,
         sort_by: None,
         sort_ascending: None,
+        opt_fields: None,
     });
 
     let result = server.asana_search(params).await.unwrap();
@@ -2681,6 +2736,7 @@ async fn test_search_with_filters() {
         modified_at_after: None,
         modified_at_before: None,
         portfolios: None,
+        opt_fields: None,
     });
 
     let result = server.asana_search(params).await.unwrap();
@@ -2724,6 +2780,7 @@ async fn test_search_unassigned() {
         portfolios: None,
         sort_by: None,
         sort_ascending: None,
+        opt_fields: None,
     });
 
     let result = server.asana_search(params).await.unwrap();

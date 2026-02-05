@@ -30,46 +30,46 @@ pub enum ResourceType {
     Portfolio,
     /// Get a task with context (use include_* flags)
     Task,
-    /// Get user's favorites from a workspace (gid = workspace GID)
-    #[serde(alias = "favorites")]
+    /// Get user's favorites from a workspace (gid = workspace GID or empty for default)
+    #[serde(rename = "workspace_favorites", alias = "favorites")]
     WorkspaceFavorites,
     /// Get all tasks from a project or portfolio (gid = project/portfolio GID)
-    #[serde(alias = "tasks")]
+    #[serde(rename = "project_tasks", alias = "tasks")]
     ProjectTasks,
     /// Get subtasks of a task (gid = parent task GID)
-    #[serde(alias = "subtasks")]
+    #[serde(rename = "task_subtasks", alias = "subtasks")]
     TaskSubtasks,
     /// Get comments on a task (gid = task GID)
-    #[serde(alias = "comments")]
+    #[serde(rename = "task_comments", alias = "comments")]
     TaskComments,
     /// Get status update history (gid = project/portfolio GID)
-    #[serde(alias = "status_updates")]
+    #[serde(rename = "project_status_updates", alias = "status_updates")]
     ProjectStatusUpdates,
     /// List all workspaces (gid is ignored)
-    #[serde(alias = "workspaces")]
+    #[serde(rename = "all_workspaces", alias = "workspaces")]
     AllWorkspaces,
     /// Get a single workspace by GID
     Workspace,
     /// List templates in a workspace (gid = workspace GID)
-    #[serde(alias = "project_templates")]
+    #[serde(rename = "workspace_templates", alias = "project_templates")]
     WorkspaceTemplates,
     /// Get a single project template by GID
     ProjectTemplate,
     /// List sections in a project (gid = project GID)
-    #[serde(alias = "sections")]
+    #[serde(rename = "project_sections", alias = "sections")]
     ProjectSections,
     /// Get a single section by GID
     Section,
     /// List tags in a workspace (gid = workspace GID)
-    #[serde(alias = "tags")]
+    #[serde(rename = "workspace_tags", alias = "tags")]
     WorkspaceTags,
     /// Get a single tag by GID
     Tag,
     /// Get tasks assigned to the current user in a workspace (gid = workspace GID)
-    #[serde(alias = "my_assigned_tasks")]
+    #[serde(rename = "my_tasks", alias = "my_assigned_tasks")]
     MyTasks,
     /// List all projects in a workspace (gid = workspace GID)
-    #[serde(alias = "projects")]
+    #[serde(rename = "workspace_projects", alias = "projects")]
     WorkspaceProjects,
     /// Get the current authenticated user (gid is ignored)
     #[serde(alias = "current_user")]
@@ -77,17 +77,17 @@ pub enum ResourceType {
     /// Get a user by GID
     User,
     /// List all users in a workspace (gid = workspace GID)
-    #[serde(alias = "users")]
+    #[serde(rename = "workspace_users", alias = "users")]
     WorkspaceUsers,
     /// Get a team by GID
     Team,
     /// List all teams in an organization/workspace (gid = workspace GID)
-    #[serde(alias = "teams")]
+    #[serde(rename = "workspace_teams", alias = "teams")]
     WorkspaceTeams,
     /// List users in a team (gid = team GID)
     TeamUsers,
     /// Get custom field settings for a project (gid = project GID)
-    #[serde(alias = "custom_fields")]
+    #[serde(rename = "project_custom_fields", alias = "custom_fields")]
     ProjectCustomFields,
 }
 
@@ -96,8 +96,10 @@ pub enum ResourceType {
 pub struct GetParams {
     /// The type of resource to fetch
     pub resource_type: ResourceType,
-    /// The GID of the resource (meaning varies by resource_type - see ResourceType docs)
-    pub gid: String,
+    /// The GID of the resource. Optional for: all_workspaces, me, and workspace-based operations
+    /// (which fall back to ASANA_DEFAULT_WORKSPACE). Required for resource-specific operations.
+    #[serde(default)]
+    pub gid: Option<String>,
     /// Portfolio/task traversal depth: -1 = unlimited, 0 = none, N = N levels
     #[serde(default)]
     pub depth: Option<i32>,
@@ -113,12 +115,10 @@ pub struct GetParams {
     /// Include comments when fetching a task (default: true)
     #[serde(default)]
     pub include_comments: Option<bool>,
-    /// Include projects in favorites (default: true)
+    /// Override default fields returned. If not provided, returns curated fields per resource type.
+    /// Example: ["gid", "name", "completed", "assignee.name"]
     #[serde(default)]
-    pub include_projects: Option<bool>,
-    /// Include portfolios in favorites (default: true)
-    #[serde(default)]
-    pub include_portfolios: Option<bool>,
+    pub opt_fields: Option<Vec<String>>,
 }
 
 /// The type of resource to create.
@@ -132,6 +132,7 @@ pub enum CreateResourceType {
     /// Create a new project
     Project,
     /// Create a project from a template
+    #[serde(rename = "project_from_template")]
     ProjectFromTemplate,
     /// Create a new portfolio
     Portfolio,
@@ -140,12 +141,15 @@ pub enum CreateResourceType {
     /// Create a comment on a task
     Comment,
     /// Create a status update on a project/portfolio
+    #[serde(rename = "status_update")]
     StatusUpdate,
     /// Create a new tag
     Tag,
     /// Duplicate an existing project
+    #[serde(rename = "project_duplicate")]
     ProjectDuplicate,
     /// Duplicate an existing task
+    #[serde(rename = "task_duplicate")]
     TaskDuplicate,
 }
 
@@ -243,6 +247,10 @@ pub struct CreateParams {
     /// For task: notes, assignee, subtasks, attachments, tags, followers, projects, dates, dependencies, parent.
     #[serde(default)]
     pub include: Option<Vec<String>>,
+    /// Override default fields returned in response. If not provided, returns minimal confirmation.
+    /// Example: ["gid", "name", "permalink_url"]
+    #[serde(default)]
+    pub opt_fields: Option<Vec<String>>,
 }
 
 /// Parameters for task search.
@@ -302,6 +310,10 @@ pub struct SearchParams {
     /// Sort order: asc or desc
     #[serde(default)]
     pub sort_ascending: Option<bool>,
+    /// Override default fields returned. If not provided, returns curated search result fields.
+    /// Example: ["gid", "name", "completed", "assignee.name", "due_on"]
+    #[serde(default)]
+    pub opt_fields: Option<Vec<String>>,
 }
 
 /// The type of resource to update.
@@ -321,6 +333,7 @@ pub enum UpdateResourceType {
     /// Update a comment/story
     Comment,
     /// Update a status update
+    #[serde(rename = "status_update")]
     StatusUpdate,
 }
 
@@ -376,6 +389,10 @@ pub struct UpdateParams {
     /// Updated custom field values
     #[serde(default)]
     pub custom_fields: Option<HashMap<String, serde_json::Value>>,
+    /// Override default fields returned in response. If not provided, returns curated fields.
+    /// Example: ["gid", "name", "modified_at"]
+    #[serde(default)]
+    pub opt_fields: Option<Vec<String>>,
 }
 
 /// The action to perform on a relationship.
@@ -393,24 +410,34 @@ pub enum LinkAction {
 #[serde(rename_all = "snake_case")]
 pub enum RelationshipType {
     /// Task <-> Project membership
+    #[serde(rename = "task_project")]
     TaskProject,
     /// Task <-> Tag association
+    #[serde(rename = "task_tag")]
     TaskTag,
     /// Task parent-child relationship
+    #[serde(rename = "task_parent")]
     TaskParent,
     /// Task dependency (blocking) relationship
+    #[serde(rename = "task_dependency")]
     TaskDependency,
     /// Task dependent (blocked by) relationship
+    #[serde(rename = "task_dependent")]
     TaskDependent,
     /// Task follower
+    #[serde(rename = "task_follower")]
     TaskFollower,
     /// Portfolio <-> Project/Portfolio item
+    #[serde(rename = "portfolio_item")]
     PortfolioItem,
     /// Portfolio member
+    #[serde(rename = "portfolio_member")]
     PortfolioMember,
     /// Project member
+    #[serde(rename = "project_member")]
     ProjectMember,
     /// Project follower
+    #[serde(rename = "project_follower")]
     ProjectFollower,
 }
 

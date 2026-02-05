@@ -112,36 +112,38 @@ impl AsanaServer {
             - team_users: List users in a team (gid = team GID)\n\
             - project_custom_fields: Get custom fields for a project (gid = project GID)\n\n\
             For workspace-based operations, empty gid uses ASANA_DEFAULT_WORKSPACE env var.\n\
-            Depth parameters: -1 = unlimited, 0 = none, N = N levels")]
+            Depth parameters: -1 = unlimited, 0 = none, N = N levels\n\n\
+            opt_fields: Override default fields returned. Curated defaults provided per resource type.")]
     async fn asana_get(&self, params: Parameters<GetParams>) -> Result<CallToolResult, McpError> {
         let p = params.0;
 
         match p.resource_type {
             ResourceType::Project => {
+                let gid = require_gid(&p.gid, "project")?;
+                let fields = resolve_opt_fields(&p.opt_fields, PROJECT_FIELDS);
                 let project: Resource = self
                     .client
-                    .get(
-                        &format!("/projects/{}", p.gid),
-                        &[("opt_fields", PROJECT_FIELDS)],
-                    )
+                    .get(&format!("/projects/{}", gid), &[("opt_fields", &fields)])
                     .await
                     .map_err(|e| error_to_mcp("Failed to get project", e))?;
                 json_response(&project)
             }
 
             ResourceType::Portfolio => {
+                let gid = require_gid(&p.gid, "portfolio")?;
                 let depth = depth_to_option(p.depth.unwrap_or(0));
                 let portfolio = self
-                    .get_portfolio_recursive(&p.gid, depth)
+                    .get_portfolio_recursive(&gid, depth)
                     .await
                     .map_err(|e| error_to_mcp("Failed to get portfolio", e))?;
                 json_response(&portfolio)
             }
 
             ResourceType::Task => {
+                let gid = require_gid(&p.gid, "task")?;
                 let task = self
                     .get_task_with_context(
-                        &p.gid,
+                        &gid,
                         p.include_subtasks.unwrap_or(true),
                         p.include_dependencies.unwrap_or(true),
                         p.include_comments.unwrap_or(true),
@@ -152,55 +154,65 @@ impl AsanaServer {
             }
 
             ResourceType::WorkspaceFavorites => {
-                let workspace_gid = self.resolve_workspace_gid(Some(&p.gid))?;
+                let workspace_gid = self.resolve_workspace_gid(p.gid.as_deref())?;
                 let depth = depth_to_option(p.depth.unwrap_or(0));
-                let include_projects = p.include_projects.unwrap_or(true);
-                let include_portfolios = p.include_portfolios.unwrap_or(true);
-
-                let favorites: Vec<FavoriteItem> = self
-                    .client
-                    .get_all(
-                        "/users/me/favorites",
-                        &[
-                            ("workspace", workspace_gid.as_str()),
-                            ("opt_fields", "gid,resource_type,name"),
-                        ],
-                    )
-                    .await
-                    .map_err(|e| error_to_mcp("Failed to get favorites", e))?;
 
                 let mut projects = Vec::new();
                 let mut portfolios = Vec::new();
                 let mut errors = Vec::new();
 
-                for item in favorites {
-                    match item.resource_type.as_str() {
-                        "project" if include_projects => {
-                            match self
-                                .client
-                                .get::<Resource>(
-                                    &format!("/projects/{}", item.gid),
-                                    &[("opt_fields", PROJECT_FIELDS)],
-                                )
-                                .await
-                            {
-                                Ok(project) => projects.push(project),
-                                Err(e) => errors.push(FavoriteError {
-                                    item,
-                                    error: e.to_string(),
-                                }),
-                            }
-                        }
-                        "portfolio" if include_portfolios => {
-                            match self.get_portfolio_recursive(&item.gid, depth).await {
-                                Ok(portfolio) => portfolios.push(portfolio),
-                                Err(e) => errors.push(FavoriteError {
-                                    item,
-                                    error: e.to_string(),
-                                }),
-                            }
-                        }
-                        _ => {}
+                // Fetch favorite projects
+                let fav_projects: Vec<FavoriteItem> = self
+                    .client
+                    .get_all(
+                        "/users/me/favorites",
+                        &[
+                            ("workspace", workspace_gid.as_str()),
+                            ("resource_type", "project"),
+                            ("opt_fields", "gid,resource_type,name"),
+                        ],
+                    )
+                    .await
+                    .map_err(|e| error_to_mcp("Failed to get favorite projects", e))?;
+
+                for item in fav_projects {
+                    match self
+                        .client
+                        .get::<Resource>(
+                            &format!("/projects/{}", item.gid),
+                            &[("opt_fields", PROJECT_FIELDS)],
+                        )
+                        .await
+                    {
+                        Ok(project) => projects.push(project),
+                        Err(e) => errors.push(FavoriteError {
+                            item,
+                            error: e.to_string(),
+                        }),
+                    }
+                }
+
+                // Fetch favorite portfolios
+                let fav_portfolios: Vec<FavoriteItem> = self
+                    .client
+                    .get_all(
+                        "/users/me/favorites",
+                        &[
+                            ("workspace", workspace_gid.as_str()),
+                            ("resource_type", "portfolio"),
+                            ("opt_fields", "gid,resource_type,name"),
+                        ],
+                    )
+                    .await
+                    .map_err(|e| error_to_mcp("Failed to get favorite portfolios", e))?;
+
+                for item in fav_portfolios {
+                    match self.get_portfolio_recursive(&item.gid, depth).await {
+                        Ok(portfolio) => portfolios.push(portfolio),
+                        Err(e) => errors.push(FavoriteError {
+                            item,
+                            error: e.to_string(),
+                        }),
                     }
                 }
 
@@ -212,6 +224,7 @@ impl AsanaServer {
             }
 
             ResourceType::ProjectTasks => {
+                let gid = require_gid(&p.gid, "project_tasks")?;
                 let subtask_depth = p
                     .subtask_depth
                     .map(|d| if d < 0 { None } else { Some(d) })
@@ -219,17 +232,18 @@ impl AsanaServer {
                 let portfolio_depth = Some(p.depth.unwrap_or(0));
 
                 let tasks = self
-                    .get_tasks_recursive(&p.gid, subtask_depth, portfolio_depth)
+                    .get_tasks_recursive(&gid, subtask_depth, portfolio_depth)
                     .await
                     .map_err(|e| error_to_mcp("Failed to get tasks", e))?;
                 json_response(&tasks)
             }
 
             ResourceType::TaskSubtasks => {
+                let gid = require_gid(&p.gid, "task_subtasks")?;
                 let subtasks: Vec<Resource> = self
                     .client
                     .get_all(
-                        &format!("/tasks/{}/subtasks", p.gid),
+                        &format!("/tasks/{}/subtasks", gid),
                         &[("opt_fields", SUBTASK_FIELDS)],
                     )
                     .await
@@ -238,10 +252,11 @@ impl AsanaServer {
             }
 
             ResourceType::TaskComments => {
+                let gid = require_gid(&p.gid, "task_comments")?;
                 let stories: Vec<Story> = self
                     .client
                     .get_all(
-                        &format!("/tasks/{}/stories", p.gid),
+                        &format!("/tasks/{}/stories", gid),
                         &[("opt_fields", STORY_FIELDS)],
                     )
                     .await
@@ -251,11 +266,12 @@ impl AsanaServer {
             }
 
             ResourceType::ProjectStatusUpdates => {
+                let gid = require_gid(&p.gid, "project_status_updates")?;
                 // Try as project first, then as portfolio
                 let project_result: Result<Vec<Resource>, _> = self
                     .client
                     .get_all(
-                        &format!("/projects/{}/status_updates", p.gid),
+                        &format!("/projects/{}/status_updates", gid),
                         &[("opt_fields", STATUS_UPDATE_FIELDS)],
                     )
                     .await;
@@ -265,7 +281,7 @@ impl AsanaServer {
                     Err(Error::NotFound(_)) => self
                         .client
                         .get_all(
-                            &format!("/portfolios/{}/status_updates", p.gid),
+                            &format!("/portfolios/{}/status_updates", gid),
                             &[("opt_fields", STATUS_UPDATE_FIELDS)],
                         )
                         .await
@@ -276,33 +292,34 @@ impl AsanaServer {
             }
 
             ResourceType::AllWorkspaces => {
+                let fields = resolve_opt_fields(&p.opt_fields, WORKSPACE_FIELDS);
                 let workspaces: Vec<Resource> = self
                     .client
-                    .get_all("/workspaces", &[("opt_fields", WORKSPACE_FIELDS)])
+                    .get_all("/workspaces", &[("opt_fields", &fields)])
                     .await
                     .map_err(|e| error_to_mcp("Failed to list workspaces", e))?;
                 json_response(&workspaces)
             }
 
             ResourceType::Workspace => {
+                let gid = require_gid(&p.gid, "workspace")?;
+                let fields = resolve_opt_fields(&p.opt_fields, WORKSPACE_FIELDS);
                 let workspace: Resource = self
                     .client
-                    .get(
-                        &format!("/workspaces/{}", p.gid),
-                        &[("opt_fields", WORKSPACE_FIELDS)],
-                    )
+                    .get(&format!("/workspaces/{}", gid), &[("opt_fields", &fields)])
                     .await
                     .map_err(|e| error_to_mcp("Failed to get workspace", e))?;
                 json_response(&workspace)
             }
 
             ResourceType::WorkspaceTemplates => {
-                let workspace_gid = self.resolve_workspace_gid(Some(&p.gid))?;
+                let workspace_gid = self.resolve_workspace_gid(p.gid.as_deref())?;
+                let fields = resolve_opt_fields(&p.opt_fields, TEMPLATE_FIELDS);
                 let templates: Vec<Resource> = self
                     .client
                     .get_all(
                         &format!("/workspaces/{}/project_templates", workspace_gid),
-                        &[("opt_fields", TEMPLATE_FIELDS)],
+                        &[("opt_fields", &fields)],
                     )
                     .await
                     .map_err(|e| error_to_mcp("Failed to list project templates", e))?;
@@ -310,11 +327,13 @@ impl AsanaServer {
             }
 
             ResourceType::ProjectTemplate => {
+                let gid = require_gid(&p.gid, "project_template")?;
+                let fields = resolve_opt_fields(&p.opt_fields, TEMPLATE_FIELDS);
                 let template: Resource = self
                     .client
                     .get(
-                        &format!("/project_templates/{}", p.gid),
-                        &[("opt_fields", TEMPLATE_FIELDS)],
+                        &format!("/project_templates/{}", gid),
+                        &[("opt_fields", &fields)],
                     )
                     .await
                     .map_err(|e| error_to_mcp("Failed to get project template", e))?;
@@ -322,11 +341,13 @@ impl AsanaServer {
             }
 
             ResourceType::ProjectSections => {
+                let gid = require_gid(&p.gid, "project_sections")?;
+                let fields = resolve_opt_fields(&p.opt_fields, SECTION_FIELDS);
                 let sections: Vec<Resource> = self
                     .client
                     .get_all(
-                        &format!("/projects/{}/sections", p.gid),
-                        &[("opt_fields", SECTION_FIELDS)],
+                        &format!("/projects/{}/sections", gid),
+                        &[("opt_fields", &fields)],
                     )
                     .await
                     .map_err(|e| error_to_mcp("Failed to list sections", e))?;
@@ -334,24 +355,24 @@ impl AsanaServer {
             }
 
             ResourceType::Section => {
+                let gid = require_gid(&p.gid, "section")?;
+                let fields = resolve_opt_fields(&p.opt_fields, SECTION_FIELDS);
                 let section: Resource = self
                     .client
-                    .get(
-                        &format!("/sections/{}", p.gid),
-                        &[("opt_fields", SECTION_FIELDS)],
-                    )
+                    .get(&format!("/sections/{}", gid), &[("opt_fields", &fields)])
                     .await
                     .map_err(|e| error_to_mcp("Failed to get section", e))?;
                 json_response(&section)
             }
 
             ResourceType::WorkspaceTags => {
-                let workspace_gid = self.resolve_workspace_gid(Some(&p.gid))?;
+                let workspace_gid = self.resolve_workspace_gid(p.gid.as_deref())?;
+                let fields = resolve_opt_fields(&p.opt_fields, TAG_FIELDS);
                 let tags: Vec<Resource> = self
                     .client
                     .get_all(
                         &format!("/workspaces/{}/tags", workspace_gid),
-                        &[("opt_fields", TAG_FIELDS)],
+                        &[("opt_fields", &fields)],
                     )
                     .await
                     .map_err(|e| error_to_mcp("Failed to list tags", e))?;
@@ -359,16 +380,19 @@ impl AsanaServer {
             }
 
             ResourceType::Tag => {
+                let gid = require_gid(&p.gid, "tag")?;
+                let fields = resolve_opt_fields(&p.opt_fields, TAG_FIELDS);
                 let tag: Resource = self
                     .client
-                    .get(&format!("/tags/{}", p.gid), &[("opt_fields", TAG_FIELDS)])
+                    .get(&format!("/tags/{}", gid), &[("opt_fields", &fields)])
                     .await
                     .map_err(|e| error_to_mcp("Failed to get tag", e))?;
                 json_response(&tag)
             }
 
             ResourceType::MyTasks => {
-                let workspace_gid = self.resolve_workspace_gid(Some(&p.gid))?;
+                let workspace_gid = self.resolve_workspace_gid(p.gid.as_deref())?;
+                let fields = resolve_opt_fields(&p.opt_fields, RECURSIVE_TASK_FIELDS);
                 // First get the user's task list for this workspace
                 let task_list: Resource = self
                     .client
@@ -384,7 +408,7 @@ impl AsanaServer {
                     .client
                     .get_all(
                         &format!("/user_task_lists/{}/tasks", task_list.gid),
-                        &[("opt_fields", RECURSIVE_TASK_FIELDS)],
+                        &[("opt_fields", &fields)],
                     )
                     .await
                     .map_err(|e| error_to_mcp("Failed to get tasks", e))?;
@@ -392,12 +416,13 @@ impl AsanaServer {
             }
 
             ResourceType::WorkspaceProjects => {
-                let workspace_gid = self.resolve_workspace_gid(Some(&p.gid))?;
+                let workspace_gid = self.resolve_workspace_gid(p.gid.as_deref())?;
+                let fields = resolve_opt_fields(&p.opt_fields, PROJECT_FIELDS);
                 let projects: Vec<Resource> = self
                     .client
                     .get_all(
                         &format!("/workspaces/{}/projects", workspace_gid),
-                        &[("opt_fields", PROJECT_FIELDS)],
+                        &[("opt_fields", &fields)],
                     )
                     .await
                     .map_err(|e| error_to_mcp("Failed to get projects", e))?;
@@ -405,30 +430,34 @@ impl AsanaServer {
             }
 
             ResourceType::Me => {
+                let fields = resolve_opt_fields(&p.opt_fields, USER_FIELDS);
                 let user: Resource = self
                     .client
-                    .get("/users/me", &[("opt_fields", USER_FIELDS)])
+                    .get("/users/me", &[("opt_fields", &fields)])
                     .await
                     .map_err(|e| error_to_mcp("Failed to get current user", e))?;
                 json_response(&user)
             }
 
             ResourceType::User => {
+                let gid = require_gid(&p.gid, "user")?;
+                let fields = resolve_opt_fields(&p.opt_fields, USER_FIELDS);
                 let user: Resource = self
                     .client
-                    .get(&format!("/users/{}", p.gid), &[("opt_fields", USER_FIELDS)])
+                    .get(&format!("/users/{}", gid), &[("opt_fields", &fields)])
                     .await
                     .map_err(|e| error_to_mcp("Failed to get user", e))?;
                 json_response(&user)
             }
 
             ResourceType::WorkspaceUsers => {
-                let workspace_gid = self.resolve_workspace_gid(Some(&p.gid))?;
+                let workspace_gid = self.resolve_workspace_gid(p.gid.as_deref())?;
+                let fields = resolve_opt_fields(&p.opt_fields, USER_FIELDS);
                 let users: Vec<Resource> = self
                     .client
                     .get_all(
                         &format!("/workspaces/{}/users", workspace_gid),
-                        &[("opt_fields", USER_FIELDS)],
+                        &[("opt_fields", &fields)],
                     )
                     .await
                     .map_err(|e| error_to_mcp("Failed to get users", e))?;
@@ -436,21 +465,24 @@ impl AsanaServer {
             }
 
             ResourceType::Team => {
+                let gid = require_gid(&p.gid, "team")?;
+                let fields = resolve_opt_fields(&p.opt_fields, TEAM_FIELDS);
                 let team: Resource = self
                     .client
-                    .get(&format!("/teams/{}", p.gid), &[("opt_fields", TEAM_FIELDS)])
+                    .get(&format!("/teams/{}", gid), &[("opt_fields", &fields)])
                     .await
                     .map_err(|e| error_to_mcp("Failed to get team", e))?;
                 json_response(&team)
             }
 
             ResourceType::WorkspaceTeams => {
-                let workspace_gid = self.resolve_workspace_gid(Some(&p.gid))?;
+                let workspace_gid = self.resolve_workspace_gid(p.gid.as_deref())?;
+                let fields = resolve_opt_fields(&p.opt_fields, TEAM_FIELDS);
                 let teams: Vec<Resource> = self
                     .client
                     .get_all(
                         &format!("/workspaces/{}/teams", workspace_gid),
-                        &[("opt_fields", TEAM_FIELDS)],
+                        &[("opt_fields", &fields)],
                     )
                     .await
                     .map_err(|e| error_to_mcp("Failed to get teams", e))?;
@@ -458,23 +490,24 @@ impl AsanaServer {
             }
 
             ResourceType::TeamUsers => {
+                let gid = require_gid(&p.gid, "team_users")?;
+                let fields = resolve_opt_fields(&p.opt_fields, USER_FIELDS);
                 let users: Vec<Resource> = self
                     .client
-                    .get_all(
-                        &format!("/teams/{}/users", p.gid),
-                        &[("opt_fields", USER_FIELDS)],
-                    )
+                    .get_all(&format!("/teams/{}/users", gid), &[("opt_fields", &fields)])
                     .await
                     .map_err(|e| error_to_mcp("Failed to get team users", e))?;
                 json_response(&users)
             }
 
             ResourceType::ProjectCustomFields => {
+                let gid = require_gid(&p.gid, "project_custom_fields")?;
+                let fields = resolve_opt_fields(&p.opt_fields, CUSTOM_FIELD_SETTINGS_FIELDS);
                 let settings: Vec<Resource> = self
                     .client
                     .get_all(
-                        &format!("/projects/{}/custom_field_settings", p.gid),
-                        &[("opt_fields", CUSTOM_FIELD_SETTINGS_FIELDS)],
+                        &format!("/projects/{}/custom_field_settings", gid),
+                        &[("opt_fields", &fields)],
                     )
                     .await
                     .map_err(|e| error_to_mcp("Failed to get custom field settings", e))?;
@@ -1290,17 +1323,18 @@ impl AsanaServer {
             - modified_at_after, modified_at_before: Datetime filters (ISO 8601)\n\
             - portfolios: Filter by portfolio GID(s)\n\
             - sort_by: due_date, created_at, completed_at, likes, modified_at\n\
-            - sort_ascending: true/false")]
+            - sort_ascending: true/false\n\n\
+            opt_fields: Override default fields returned. Curated defaults provided.")]
     async fn asana_search(
         &self,
         params: Parameters<SearchParams>,
     ) -> Result<CallToolResult, McpError> {
         let p = params.0;
         let workspace_gid = self.resolve_workspace_gid(p.workspace_gid.as_deref())?;
+        let fields = resolve_opt_fields(&p.opt_fields, SEARCH_FIELDS);
 
         // Build query parameters
-        let mut query_params: Vec<(String, String)> =
-            vec![("opt_fields".to_string(), SEARCH_FIELDS.to_string())];
+        let mut query_params: Vec<(String, String)> = vec![("opt_fields".to_string(), fields)];
 
         if let Some(text) = p.text {
             query_params.push(("text".to_string(), text));
