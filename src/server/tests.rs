@@ -3180,7 +3180,7 @@ async fn test_resource_search_count_defaults_to_20() {
     });
 
     let result = server.asana_resource_search(params).await.unwrap();
-    assert!(result.content.len() > 0);
+    assert!(!result.content.is_empty());
 }
 
 #[tokio::test]
@@ -3206,7 +3206,7 @@ async fn test_resource_search_count_clamped_to_100() {
     });
 
     let result = server.asana_resource_search(params).await.unwrap();
-    assert!(result.content.len() > 0);
+    assert!(!result.content.is_empty());
 }
 
 #[tokio::test]
