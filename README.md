@@ -1,53 +1,15 @@
 # asanamcp
 
-MCP (Model Context Protocol) server for the Asana API.
+[![CI](https://github.com/adlio/asanamcp/actions/workflows/ci.yml/badge.svg)](https://github.com/adlio/asanamcp/actions/workflows/ci.yml)
+[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-## Features
+MCP server for the Asana API.
 
-- **4 unified tools** covering read, create, update, and relationship operations
-- **Recursive traversal** of portfolios, projects, and tasks with configurable depth
-- **Hybrid typed responses** - minimal typed fields for dispatch with raw JSON for AI consumption
-- **Full CRUD support** for tasks, projects, portfolios, sections, tags, and more
+## Quick Start
 
-## Installation
+1. Get an Asana Personal Access Token at https://app.asana.com/0/my-apps
 
-### From source
-
-```bash
-git clone https://github.com/adlio/asanamcp
-cd asanamcp
-make install
-```
-
-### Using cargo
-
-```bash
-cargo install --git https://github.com/adlio/asanamcp
-```
-
-## Usage
-
-### Environment Setup
-
-Set your Asana Personal Access Token:
-
-```bash
-export ASANA_TOKEN="your-personal-access-token"
-```
-
-Get a token at https://app.asana.com/0/my-apps
-
-### Running the Server
-
-```bash
-asanamcp
-```
-
-The server communicates via STDIO using the MCP protocol.
-
-### Claude Desktop Configuration
-
-Add to your Claude Desktop config (`~/Library/Application Support/Claude/claude_desktop_config.json` on macOS):
+2. Add to Claude Desktop config (`~/Library/Application Support/Claude/claude_desktop_config.json`):
 
 ```json
 {
@@ -62,82 +24,98 @@ Add to your Claude Desktop config (`~/Library/Application Support/Claude/claude_
 }
 ```
 
-## MCP Tools
+3. Install:
 
-### asana_workspaces
+```bash
+cargo install --git https://github.com/adlio/asanamcp
+```
 
-List all workspaces accessible to the authenticated user.
+## Tools
+
+| Tool | Description |
+|------|-------------|
+| `asana_workspaces` | List all workspaces |
+| `asana_get` | Fetch any resource (projects, tasks, portfolios, etc.) |
+| `asana_create` | Create resources (tasks, comments, projects, etc.) |
+| `asana_update` | Update existing resources |
+| `asana_link` | Manage relationships (task↔project, dependencies, etc.) |
 
 ### asana_get
 
-Universal read tool for fetching any Asana resource:
+Fetch any Asana resource with recursive traversal support.
 
-| resource_type | gid meaning | Description |
-|---------------|-------------|-------------|
-| `project` | project GID | Get a project |
-| `portfolio` | portfolio GID | Get portfolio with nested items (use `depth`) |
-| `task` | task GID | Get task with context (use `include_*` flags) |
-| `favorites` | workspace GID | Get user's favorites |
-| `tasks` | project/portfolio GID | Get all tasks (use `subtask_depth`) |
-| `subtasks` | task GID | Get subtasks |
-| `comments` | task GID | Get comments |
-| `status_updates` | project/portfolio GID | Get status history |
-| `workspaces` | (ignored) | List all workspaces |
-| `workspace` | workspace GID | Get a workspace |
-| `project_templates` | workspace GID | List templates |
-| `project_template` | template GID | Get a template |
-| `sections` | project GID | List sections |
-| `section` | section GID | Get a section |
-| `tags` | workspace GID | List tags |
-| `tag` | tag GID | Get a tag |
+```json
+{"resource_type": "portfolio", "gid": "123", "depth": -1}
+```
 
-**Depth parameters:** `-1` = unlimited, `0` = none, `N` = N levels
+| resource_type | gid | Options |
+|---------------|-----|---------|
+| `project` | project GID | |
+| `portfolio` | portfolio GID | `depth`: traversal depth |
+| `task` | task GID | `include_subtasks`, `include_dependencies`, `include_comments` |
+| `workspace_favorites` | workspace GID | `include_projects`, `include_portfolios` |
+| `project_tasks` | project/portfolio GID | `subtask_depth` |
+| `task_subtasks` | task GID | |
+| `task_comments` | task GID | |
+| `project_status_updates` | project/portfolio GID | |
+| `workspace` | workspace GID | |
+| `workspace_templates` | workspace GID | |
+| `project_template` | template GID | |
+| `project_sections` | project GID | |
+| `section` | section GID | |
+| `workspace_tags` | workspace GID | |
+| `tag` | tag GID | |
+
+Depth: `-1` = unlimited, `0` = none, `N` = N levels.
 
 ### asana_create
 
-Create new resources:
+```json
+{"resource_type": "task", "project_gid": "123", "name": "New task", "assignee": "me"}
+```
 
-- `task` - Create a task (requires `workspace_gid` or `project_gid`)
-- `subtask` - Create a subtask (requires `task_gid`)
-- `project` - Create a project (requires `workspace_gid` or `team_gid`)
-- `project_from_template` - Instantiate from template (requires `template_gid`)
-- `portfolio` - Create a portfolio (requires `workspace_gid`)
-- `section` - Create a section (requires `project_gid`)
-- `comment` - Add a comment (requires `task_gid`)
-- `status_update` - Create status update (requires `parent_gid`)
-- `tag` - Create a tag (requires `workspace_gid`)
+| resource_type | Required fields |
+|---------------|-----------------|
+| `task` | `workspace_gid` or `project_gid`, `name` |
+| `subtask` | `task_gid`, `name` |
+| `project` | `workspace_gid` or `team_gid`, `name` |
+| `project_from_template` | `template_gid`, `name` |
+| `portfolio` | `workspace_gid`, `name` |
+| `section` | `project_gid`, `name` |
+| `comment` | `task_gid`, `text` |
+| `status_update` | `parent_gid`, `status_type`, `text` |
+| `tag` | `workspace_gid`, `name` |
 
 ### asana_update
 
-Update existing resources:
+```json
+{"resource_type": "task", "gid": "123", "completed": true}
+```
 
-- `task` - Update task fields
-- `project` - Update project fields
-- `portfolio` - Update portfolio fields
-- `section` - Update section name
-- `tag` - Update tag fields
-- `comment` - Update comment text
+Supports: `task`, `project`, `portfolio`, `section`, `tag`, `comment`.
 
 ### asana_link
 
-Manage relationships between resources:
+```json
+{"action": "add", "relationship": "task_project", "target_gid": "task123", "item_gid": "proj456"}
+```
 
-| relationship | Description |
-|--------------|-------------|
-| `task_project` | Add/remove task from project |
-| `task_tag` | Add/remove tag from task |
-| `task_parent` | Set/remove task parent |
-| `task_dependency` | Add/remove task dependencies |
-| `task_dependent` | Add/remove task dependents |
-| `task_follower` | Add/remove task followers |
-| `portfolio_item` | Add/remove project from portfolio |
-| `portfolio_member` | Add/remove portfolio members |
-| `project_member` | Add/remove project members |
-| `project_follower` | Add/remove project followers |
+| relationship | target | item |
+|--------------|--------|------|
+| `task_project` | task GID | project GID |
+| `task_tag` | task GID | tag GID |
+| `task_parent` | task GID | parent task GID |
+| `task_dependency` | task GID | blocking task GID(s) |
+| `task_dependent` | task GID | dependent task GID(s) |
+| `task_follower` | task GID | user GID(s) |
+| `portfolio_item` | portfolio GID | project GID |
+| `portfolio_member` | portfolio GID | user GID(s) |
+| `project_member` | project GID | user GID(s) |
+| `project_follower` | project GID | user GID(s) |
+
+Use `item_gid` for single items or `item_gids` for bulk operations.
 
 ## Library Usage
-
-The crate can also be used as a library:
 
 ```rust
 use asanamcp::{AsanaClient, Resource};
@@ -146,7 +124,6 @@ use asanamcp::{AsanaClient, Resource};
 async fn main() -> Result<(), asanamcp::Error> {
     let client = AsanaClient::from_env()?;
 
-    // List workspaces
     let workspaces: Vec<Resource> = client
         .get_all("/workspaces", &[("opt_fields", "gid,name")])
         .await?;
@@ -154,7 +131,6 @@ async fn main() -> Result<(), asanamcp::Error> {
     for ws in workspaces {
         println!("{}: {:?}", ws.gid, ws.fields.get("name"));
     }
-
     Ok(())
 }
 ```
@@ -162,20 +138,11 @@ async fn main() -> Result<(), asanamcp::Error> {
 ## Development
 
 ```bash
-# Run all checks (format, lint, build, docs, test)
-make ci
-
-# Run tests
-make test
-
-# Generate coverage report
-make coverage-html
-
-# Format code
-make fmt
-
-# Run clippy
-make lint
+make ci         # Run all checks (fmt, lint, build, docs, test)
+make test       # Run tests
+make coverage   # Coverage report
+make fmt        # Format code
+make lint       # Run clippy
 ```
 
 ## License
