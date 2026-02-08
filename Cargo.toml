@@ -5,8 +5,11 @@ edition = "2021"
 description = "MCP server for Asana API"
 license = "MIT"
 repository = "https://github.com/adlio/asanamcp"
+documentation = "https://docs.rs/asanamcp"
+readme = "README.md"
 keywords = ["asana", "mcp", "api"]
 categories = ["api-bindings", "development-tools"]
+exclude = ["docs/", ".cargo-husky/", ".claude/", ".github/", "AGENTS.md"]
 
 [lib]
 name = "asanamcp"
@@ -26,6 +29,6 @@ thiserror = "2.0"
 tokio = { version = "1.0", features = ["rt-multi-thread", "macros"] }
 
 [dev-dependencies]
-cargo-husky = { version = "1", default-features = false, features = ["precommit-hook", "run-cargo-clippy", "run-cargo-fmt", "run-cargo-test"] }
+cargo-husky = { version = "1", default-features = false, features = ["user-hooks"] }
 tokio-test = "0.4"
 wiremock = "0.6"

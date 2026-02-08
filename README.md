@@ -1,6 +1,9 @@
 # asanamcp
 
+[![Crates.io](https://img.shields.io/crates/v/asanamcp.svg)](https://crates.io/crates/asanamcp)
+[![Documentation](https://docs.rs/asanamcp/badge.svg)](https://docs.rs/asanamcp)
 [![CI](https://github.com/adlio/asanamcp/actions/workflows/ci.yml/badge.svg)](https://github.com/adlio/asanamcp/actions/workflows/ci.yml)
+[![Coverage](https://codecov.io/gh/adlio/asanamcp/branch/main/graph/badge.svg)](https://codecov.io/gh/adlio/asanamcp)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 MCP server for the Asana API.
