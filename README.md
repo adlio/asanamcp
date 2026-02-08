@@ -118,7 +118,8 @@ Fetch any Asana resource with recursive traversal support.
 | `team` | team GID | |
 | `team_users` | team GID | |
 | `project_custom_fields` | project GID | |
-| `project_brief` | project GID | Project brief/note (a.k.a. "note" in UI) |
+| `project_brief` | brief GID | Project brief (Key Resources on Overview tab, NOT the Note tab) |
+| `project_project_brief` | project GID | Get project's brief via project GID |
 
 *Uses `ASANA_DEFAULT_WORKSPACE` if gid is empty.
 
@@ -143,7 +144,7 @@ Depth: `-1` = unlimited, `0` = none, `N` = N levels.
 | `tag` | `workspace_gid`*, `name` |
 | `project_duplicate` | `source_gid`, `name` |
 | `task_duplicate` | `source_gid`, `name` |
-| `project_brief` | `project_gid`, `text` or `html_text` | a.k.a. "note" in UI |
+| `project_brief` | `project_gid`, `html_text` (with `<body>` tags) | Key Resources on Overview tab (NOT the Note tab) |
 
 *Uses `ASANA_DEFAULT_WORKSPACE` if not provided.
 
@@ -153,7 +154,7 @@ Depth: `-1` = unlimited, `0` = none, `N` = N levels.
 {"resource_type": "task", "gid": "123", "completed": true}
 ```
 
-Supports: `task`, `project`, `portfolio`, `section`, `tag`, `comment`, `status_update`, `project_brief` (a.k.a. "note" in UI).
+Supports: `task`, `project`, `portfolio`, `section`, `tag`, `comment`, `status_update`, `project_brief` (Key Resources on Overview tab, NOT the Note tab).
 
 ### asana_link
 

@@ -2955,15 +2955,16 @@ async fn test_resource_search_requires_query() {
 }
 
 // ============================================================================
-// Project Brief (Note) Tests
+// Project Brief Tests (Key Resources on Overview tab, NOT the Note tab)
 // ============================================================================
 
 #[tokio::test]
 async fn test_get_project_brief() {
     let mock_server = MockServer::start().await;
 
+    // Uses brief GID directly (matches asana_update behavior)
     Mock::given(method("GET"))
-        .and(path("/projects/proj123/project_brief"))
+        .and(path("/project_briefs/brief123"))
         .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
             "data": {
                 "gid": "brief123",
@@ -2977,7 +2978,7 @@ async fn test_get_project_brief() {
 
     let server = test_server(&mock_server.uri());
     let result = server
-        .asana_get(get_params(ResourceType::ProjectBrief, "proj123"))
+        .asana_get(get_params(ResourceType::ProjectBrief, "brief123"))
         .await
         .unwrap();
     let text = get_response_text(&result);
@@ -2987,11 +2988,69 @@ async fn test_get_project_brief() {
 }
 
 #[tokio::test]
+async fn test_get_project_project_brief() {
+    let mock_server = MockServer::start().await;
+
+    // Fetches project with opt_fields=project_brief to discover the brief
+    Mock::given(method("GET"))
+        .and(path("/projects/proj123"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "data": {
+                "gid": "proj123",
+                "name": "Test Project",
+                "project_brief": {
+                    "gid": "brief123",
+                    "text": "Project brief from project",
+                    "html_text": "<p>Project brief from project</p>",
+                    "permalink_url": "https://app.asana.com/..."
+                }
+            }
+        })))
+        .mount(&mock_server)
+        .await;
+
+    let server = test_server(&mock_server.uri());
+    let result = server
+        .asana_get(get_params(ResourceType::ProjectProjectBrief, "proj123"))
+        .await
+        .unwrap();
+    let text = get_response_text(&result);
+
+    assert!(text.contains("Project brief from project"));
+    assert!(text.contains("brief123"));
+}
+
+#[tokio::test]
+async fn test_get_project_project_brief_no_brief() {
+    let mock_server = MockServer::start().await;
+
+    // Project without a brief returns null for project_brief
+    Mock::given(method("GET"))
+        .and(path("/projects/proj456"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "data": {
+                "gid": "proj456",
+                "name": "Test Project Without Brief",
+                "project_brief": null
+            }
+        })))
+        .mount(&mock_server)
+        .await;
+
+    let server = test_server(&mock_server.uri());
+    let result = server
+        .asana_get(get_params(ResourceType::ProjectProjectBrief, "proj456"))
+        .await;
+
+    assert!(result.is_err());
+}
+
+#[tokio::test]
 async fn test_create_project_brief() {
     let mock_server = MockServer::start().await;
 
     Mock::given(method("POST"))
-        .and(path("/projects/proj123/project_brief"))
+        .and(path("/projects/proj123/project_briefs"))
         .respond_with(ResponseTemplate::new(201).set_body_json(serde_json::json!({
             "data": {
                 "gid": "brief456",

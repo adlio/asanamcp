@@ -118,7 +118,8 @@ impl AsanaServer {
             - workspace_teams: List teams (gid = workspace GID or empty for default)\n\
             - team_users: List users in a team (gid = team GID)\n\
             - project_custom_fields: Get custom fields for a project (gid = project GID)\n\
-            - project_brief: Get project brief/note (gid = project GID). Also known as 'note' in the Asana UI.\n\n\
+            - project_brief: Get project brief by brief GID. This is the 'Key Resources' on the Overview tab (NOT the Note tab).\n\
+            - project_project_brief: Get project's brief via project GID. Returns the brief embedded in project, including its GID.\n\n\
             For workspace-based operations, empty gid uses ASANA_DEFAULT_WORKSPACE env var.\n\
             Depth parameters: -1 = unlimited, 0 = none, N = N levels\n\n\
             opt_fields: Override default fields returned. Curated defaults provided per resource type.")]
@@ -533,17 +534,44 @@ impl AsanaServer {
             }
 
             ResourceType::ProjectBrief => {
-                let gid = require_gid(&p.gid, "project_brief (project GID)")?;
+                let gid = require_gid(&p.gid, "project_brief (brief GID)")?;
                 let fields = resolve_opt_fields(&p.opt_fields, PROJECT_BRIEF_FIELDS);
                 let brief: Resource = self
                     .client
                     .get(
-                        &format!("/projects/{}/project_brief", gid),
+                        &format!("/project_briefs/{}", gid),
                         &[("opt_fields", &fields)],
                     )
                     .await
                     .map_err(|e| error_to_mcp("Failed to get project brief", e))?;
                 json_response(&brief)
+            }
+
+            ResourceType::ProjectProjectBrief => {
+                // Fetch the project with project_brief as opt_field to discover the brief's GID
+                let gid = require_gid(&p.gid, "project_project_brief (project GID)")?;
+                let project: Resource = self
+                    .client
+                    .get(
+                        &format!("/projects/{}", gid),
+                        &[("opt_fields", "project_brief,project_brief.text,project_brief.html_text,project_brief.title,project_brief.permalink_url")],
+                    )
+                    .await
+                    .map_err(|e| error_to_mcp("Failed to get project", e))?;
+
+                // Extract the project_brief from the project response
+                if let Some(brief) = project.fields.get("project_brief") {
+                    if brief.is_null() {
+                        return Err(validation_error(
+                            "Project does not have a project brief. Use asana_create with resource_type=project_brief to create one.",
+                        ));
+                    }
+                    json_response(brief)
+                } else {
+                    Err(validation_error(
+                        "Project does not have a project brief. Use asana_create with resource_type=project_brief to create one.",
+                    ))
+                }
             }
         }
     }
@@ -561,7 +589,7 @@ impl AsanaServer {
             - tag: Create a tag (uses default workspace if workspace_gid not provided)\n\
             - project_duplicate: Duplicate a project (source_gid, name required; include[] for options)\n\
             - task_duplicate: Duplicate a task (source_gid, name required; include[] for options)\n\
-            - project_brief: Create a project brief/note (project_gid required, text or html_text). Also known as 'note' in the Asana UI.\n\n\
+            - project_brief: Create a project brief (project_gid required, html_text with <body> tags). This is the 'Key Resources' on the Overview tab (NOT the Note tab).\n\n\
             workspace_gid uses ASANA_DEFAULT_WORKSPACE env var if not provided.")]
     async fn asana_create(
         &self,
@@ -901,7 +929,7 @@ impl AsanaServer {
                 let body = serde_json::json!({"data": data});
                 let brief: Resource = self
                     .client
-                    .post(&format!("/projects/{}/project_brief", project_gid), &body)
+                    .post(&format!("/projects/{}/project_briefs", project_gid), &body)
                     .await
                     .map_err(|e| error_to_mcp("Failed to create project brief", e))?;
                 json_response(&brief)
@@ -921,7 +949,7 @@ impl AsanaServer {
             - tag: name, color, notes\n\
             - comment: text (required)\n\
             - status_update: title, text, html_notes, status_type (on_track/at_risk/off_track)\n\
-            - project_brief: text, html_text (a.k.a. 'note' in the Asana UI)"
+            - project_brief: text, html_text (the 'Key Resources' on Overview tab, NOT the Note tab)"
     )]
     async fn asana_update(
         &self,

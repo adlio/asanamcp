@@ -89,9 +89,15 @@ pub enum ResourceType {
     /// Get custom field settings for a project (gid = project GID)
     #[serde(rename = "project_custom_fields", alias = "custom_fields")]
     ProjectCustomFields,
-    /// Get project brief/note (gid = project GID). Also known as "note" in the Asana UI.
-    #[serde(rename = "project_brief", alias = "note")]
+    /// Get project brief by brief GID. This is the "Key Resources" content on the project Overview tab.
+    /// NOTE: This is NOT the "Note" tab feature - that is a separate Asana feature without public API access.
+    #[serde(rename = "project_brief")]
     ProjectBrief,
+    /// Get project's brief via project GID. Returns the brief (including its GID) embedded in project.
+    /// Use this when you have a project GID but need to discover the brief's GID.
+    /// NOTE: This is NOT the "Note" tab feature - that is a separate Asana feature without public API access.
+    #[serde(rename = "project_project_brief")]
+    ProjectProjectBrief,
 }
 
 /// Parameters for the universal get tool.
@@ -154,8 +160,9 @@ pub enum CreateResourceType {
     /// Duplicate an existing task
     #[serde(rename = "task_duplicate")]
     TaskDuplicate,
-    /// Create a project brief/note (also known as "note" in the Asana UI)
-    #[serde(rename = "project_brief", alias = "note")]
+    /// Create a project brief (the "Key Resources" section on the project Overview tab).
+    /// NOTE: This is NOT the "Note" tab feature - that is a separate Asana feature without public API access.
+    #[serde(rename = "project_brief")]
     ProjectBrief,
 }
 
@@ -395,8 +402,9 @@ pub enum UpdateResourceType {
     /// Update a status update
     #[serde(rename = "status_update")]
     StatusUpdate,
-    /// Update a project brief/note (also known as "note" in the Asana UI)
-    #[serde(rename = "project_brief", alias = "note")]
+    /// Update a project brief (the "Key Resources" section on the project Overview tab).
+    /// NOTE: This is NOT the "Note" tab feature - that is a separate Asana feature without public API access.
+    #[serde(rename = "project_brief")]
     ProjectBrief,
 }
 
