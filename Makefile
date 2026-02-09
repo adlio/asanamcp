@@ -44,10 +44,10 @@ check: ## Run cargo check
 	cargo check --all-targets --all-features
 
 fmt: ## Format code
-	cargo fmt
+	cargo fmt --all
 
 fmt-check: ## Check formatting
-	cargo fmt -- --check
+	cargo fmt --all -- --check
 
 lint: ## Run clippy
 	cargo clippy --all-targets --all-features -- -D warnings
