@@ -242,11 +242,13 @@ impl AsanaClient {
     /// Convert an error response to an Error.
     async fn error_from_response(&self, response: reqwest::Response) -> Error {
         let status = response.status();
+        let body = response.text().await.unwrap_or_default();
 
         if status == reqwest::StatusCode::NOT_FOUND {
-            Error::NotFound("resource not found".to_string())
+            let message =
+                extract_error_message(&body).unwrap_or_else(|| "resource not found".to_string());
+            Error::NotFound(message)
         } else {
-            let body = response.text().await.unwrap_or_default();
             let message = extract_error_message(&body).unwrap_or_else(|| {
                 format!(
                     "HTTP {} {}",
@@ -376,7 +378,72 @@ mod tests {
         let client = test_client(&server);
         let result: Result<TestItem, Error> = client.get("/items/missing", &[]).await;
 
-        assert!(matches!(result, Err(Error::NotFound(_))));
+        match &result {
+            Err(Error::NotFound(msg)) => assert_eq!(msg, "resource not found"),
+            _ => panic!("Expected NotFound error, got {:?}", result),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_get_404_extracts_asana_error_message() {
+        let server = MockServer::start().await;
+
+        Mock::given(method("GET"))
+            .and(path("/projects/999"))
+            .respond_with(ResponseTemplate::new(404).set_body_json(serde_json::json!({
+                "errors": [{"message": "project: Unknown object: 999"}]
+            })))
+            .mount(&server)
+            .await;
+
+        let client = test_client(&server);
+        let result: Result<TestItem, Error> = client.get("/projects/999", &[]).await;
+
+        match &result {
+            Err(Error::NotFound(msg)) => assert_eq!(msg, "project: Unknown object: 999"),
+            _ => panic!("Expected NotFound with Asana message, got {:?}", result),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_get_404_with_malformed_body_falls_back() {
+        let server = MockServer::start().await;
+
+        Mock::given(method("GET"))
+            .and(path("/projects/999"))
+            .respond_with(ResponseTemplate::new(404).set_body_string("not json at all"))
+            .mount(&server)
+            .await;
+
+        let client = test_client(&server);
+        let result: Result<TestItem, Error> = client.get("/projects/999", &[]).await;
+
+        match &result {
+            Err(Error::NotFound(msg)) => assert_eq!(msg, "resource not found"),
+            _ => panic!("Expected NotFound fallback, got {:?}", result),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_get_404_with_wrong_json_structure_falls_back() {
+        let server = MockServer::start().await;
+
+        Mock::given(method("GET"))
+            .and(path("/projects/999"))
+            .respond_with(
+                ResponseTemplate::new(404)
+                    .set_body_json(serde_json::json!({"error": "something went wrong"})),
+            )
+            .mount(&server)
+            .await;
+
+        let client = test_client(&server);
+        let result: Result<TestItem, Error> = client.get("/projects/999", &[]).await;
+
+        match &result {
+            Err(Error::NotFound(msg)) => assert_eq!(msg, "resource not found"),
+            _ => panic!("Expected NotFound fallback, got {:?}", result),
+        }
     }
 
     #[tokio::test]

@@ -28,7 +28,7 @@ pub fn error_to_mcp(context: &str, error: Error) -> McpError {
     let (code, message) = match &error {
         Error::NotFound(resource) => (
             ErrorCode::INVALID_PARAMS,
-            format!("{}: resource not found - {}", context, resource),
+            format!("{}: {}", context, resource),
         ),
         Error::MissingToken => (
             ErrorCode::INVALID_PARAMS,
@@ -38,10 +38,7 @@ pub fn error_to_mcp(context: &str, error: Error) -> McpError {
             ErrorCode::INVALID_PARAMS,
             format!("{}: invalid token format", context),
         ),
-        Error::Api { message: msg } => (
-            ErrorCode::INTERNAL_ERROR,
-            format!("{}: API error - {}", context, msg),
-        ),
+        Error::Api { message: msg } => (ErrorCode::INTERNAL_ERROR, format!("{}: {}", context, msg)),
         Error::Http(e) => (
             ErrorCode::INTERNAL_ERROR,
             format!("{}: HTTP error - {}", context, e),
@@ -194,11 +191,14 @@ mod tests {
 
     #[test]
     fn test_error_to_mcp_not_found() {
-        let error = Error::NotFound("project".to_string());
-        let mcp_error = error_to_mcp("Test", error);
+        let error = Error::NotFound("project: Unknown object: 999".to_string());
+        let mcp_error = error_to_mcp("Failed to get project", error);
 
         assert_eq!(mcp_error.code, ErrorCode::INVALID_PARAMS);
-        assert!(mcp_error.message.contains("not found"));
+        assert_eq!(
+            mcp_error.message,
+            "Failed to get project: project: Unknown object: 999"
+        );
     }
 
     #[test]
@@ -215,10 +215,10 @@ mod tests {
         let error = Error::Api {
             message: "Rate limited".to_string(),
         };
-        let mcp_error = error_to_mcp("Test", error);
+        let mcp_error = error_to_mcp("Failed to search tasks", error);
 
         assert_eq!(mcp_error.code, ErrorCode::INTERNAL_ERROR);
-        assert!(mcp_error.message.contains("Rate limited"));
+        assert_eq!(mcp_error.message, "Failed to search tasks: Rate limited");
     }
 
     #[test]
