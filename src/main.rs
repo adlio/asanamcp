@@ -41,6 +41,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         return Ok(());
     }
 
+    // Handle --version flag
+    if args.iter().any(|a| a == "--version" || a == "-V") {
+        print_version();
+        return Ok(());
+    }
+
     // Handle --help flag
     if args.iter().any(|a| a == "--help" || a == "-h") {
         print_help();
@@ -59,6 +65,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+fn print_version() {
+    println!(
+        "{} {} ({}{} {})",
+        env!("CARGO_PKG_NAME"),
+        env!("CARGO_PKG_VERSION"),
+        env!("BUILD_GIT_SHA"),
+        env!("BUILD_GIT_DIRTY"),
+        env!("BUILD_TIMESTAMP"),
+    );
+}
+
 fn print_help() {
     println!(
         r#"asanamcp - MCP server for Asana API
@@ -68,6 +85,7 @@ USAGE:
 
 OPTIONS:
     --schema [TOOL]  Dump tool schemas (optionally filter by tool name)
+    -V, --version    Print version information
     -h, --help       Show this help message
 
 ENVIRONMENT:
