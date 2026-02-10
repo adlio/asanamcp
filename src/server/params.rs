@@ -508,6 +508,70 @@ pub struct UpdateParams {
     pub opt_fields: Option<Vec<String>>,
 }
 
+/// The type of resource to delete.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum DeleteResourceType {
+    /// Delete a task
+    Task,
+    /// Delete a project
+    Project,
+    /// Delete a portfolio
+    Portfolio,
+    /// Delete a section
+    Section,
+    /// Delete a tag
+    Tag,
+    /// Delete a comment/story
+    Comment,
+    /// Delete a status update
+    #[serde(rename = "status_update")]
+    StatusUpdate,
+    /// Delete a project brief (the "Key Resources" section on the project Overview tab).
+    /// NOTE: This is NOT the "Note" tab feature - that is a separate Asana feature without public API access.
+    #[serde(rename = "project_brief")]
+    ProjectBrief,
+}
+
+impl DeleteResourceType {
+    /// Get the API endpoint path segment for this resource type.
+    pub fn endpoint(&self) -> &'static str {
+        match self {
+            Self::Task => "tasks",
+            Self::Project => "projects",
+            Self::Portfolio => "portfolios",
+            Self::Section => "sections",
+            Self::Tag => "tags",
+            Self::Comment => "stories",
+            Self::StatusUpdate => "status_updates",
+            Self::ProjectBrief => "project_briefs",
+        }
+    }
+
+    /// Get the human-readable display name for this resource type.
+    pub fn display_name(&self) -> &'static str {
+        match self {
+            Self::Task => "task",
+            Self::Project => "project",
+            Self::Portfolio => "portfolio",
+            Self::Section => "section",
+            Self::Tag => "tag",
+            Self::Comment => "comment",
+            Self::StatusUpdate => "status update",
+            Self::ProjectBrief => "project brief",
+        }
+    }
+}
+
+/// Parameters for the delete tool.
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct DeleteParams {
+    /// The type of resource to delete
+    pub resource_type: DeleteResourceType,
+    /// The GID of the resource to delete
+    pub gid: String,
+}
+
 /// The action to perform on a relationship.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]

@@ -1181,6 +1181,35 @@ impl AsanaServer {
         }
     }
 
+    /// Delete Asana resources permanently.
+    #[tool(
+        description = "Permanently delete an Asana resource. This action is irreversible.\n\
+            \n\
+            Resource types:\n\
+            - task: Delete a task\n\
+            - project: Delete a project\n\
+            - portfolio: Delete a portfolio\n\
+            - section: Delete a section\n\
+            - tag: Delete a tag\n\
+            - comment: Delete a comment/story\n\
+            - status_update: Delete a status update\n\
+            - project_brief: Delete a project brief"
+    )]
+    async fn asana_delete(
+        &self,
+        params: Parameters<DeleteParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let p = params.0;
+        let endpoint = p.resource_type.endpoint();
+        let name = p.resource_type.display_name();
+
+        self.client
+            .delete(&format!("/{}/{}", endpoint, p.gid))
+            .await
+            .map_err(|e| error_to_mcp(&format!("Failed to delete {}", name), e))?;
+        success_response(&format!("Successfully deleted {} {}", name, p.gid))
+    }
+
     /// Manage relationships between Asana resources.
     #[tool(description = "Add or remove relationships between Asana resources.\n\
             Use action='add' or action='remove', specify relationship type, target_gid, and item_gid(s).\n\

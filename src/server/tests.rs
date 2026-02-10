@@ -3880,3 +3880,239 @@ async fn test_resource_search_goal() {
 
     assert!(text.contains("Increase Revenue"));
 }
+
+// ============================================================================
+// Delete Tests
+// ============================================================================
+
+#[tokio::test]
+async fn test_delete_task_success() {
+    let mock_server = MockServer::start().await;
+
+    Mock::given(method("DELETE"))
+        .and(path("/tasks/task123"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({"data": {}})))
+        .mount(&mock_server)
+        .await;
+
+    let server = test_server(&mock_server.uri());
+    let params = Parameters(DeleteParams {
+        resource_type: DeleteResourceType::Task,
+        gid: "task123".to_string(),
+    });
+
+    let result = server.asana_delete(params).await.unwrap();
+    let text = get_response_text(&result);
+
+    assert!(text.contains("success"));
+    assert!(text.contains("task123"));
+}
+
+#[tokio::test]
+async fn test_delete_project_success() {
+    let mock_server = MockServer::start().await;
+
+    Mock::given(method("DELETE"))
+        .and(path("/projects/proj123"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({"data": {}})))
+        .mount(&mock_server)
+        .await;
+
+    let server = test_server(&mock_server.uri());
+    let params = Parameters(DeleteParams {
+        resource_type: DeleteResourceType::Project,
+        gid: "proj123".to_string(),
+    });
+
+    let result = server.asana_delete(params).await.unwrap();
+    let text = get_response_text(&result);
+
+    assert!(text.contains("success"));
+    assert!(text.contains("proj123"));
+}
+
+#[tokio::test]
+async fn test_delete_portfolio_success() {
+    let mock_server = MockServer::start().await;
+
+    Mock::given(method("DELETE"))
+        .and(path("/portfolios/port123"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({"data": {}})))
+        .mount(&mock_server)
+        .await;
+
+    let server = test_server(&mock_server.uri());
+    let params = Parameters(DeleteParams {
+        resource_type: DeleteResourceType::Portfolio,
+        gid: "port123".to_string(),
+    });
+
+    let result = server.asana_delete(params).await.unwrap();
+    let text = get_response_text(&result);
+
+    assert!(text.contains("success"));
+    assert!(text.contains("port123"));
+}
+
+#[tokio::test]
+async fn test_delete_section_success() {
+    let mock_server = MockServer::start().await;
+
+    Mock::given(method("DELETE"))
+        .and(path("/sections/sect123"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({"data": {}})))
+        .mount(&mock_server)
+        .await;
+
+    let server = test_server(&mock_server.uri());
+    let params = Parameters(DeleteParams {
+        resource_type: DeleteResourceType::Section,
+        gid: "sect123".to_string(),
+    });
+
+    let result = server.asana_delete(params).await.unwrap();
+    let text = get_response_text(&result);
+
+    assert!(text.contains("success"));
+    assert!(text.contains("sect123"));
+}
+
+#[tokio::test]
+async fn test_delete_tag_success() {
+    let mock_server = MockServer::start().await;
+
+    Mock::given(method("DELETE"))
+        .and(path("/tags/tag123"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({"data": {}})))
+        .mount(&mock_server)
+        .await;
+
+    let server = test_server(&mock_server.uri());
+    let params = Parameters(DeleteParams {
+        resource_type: DeleteResourceType::Tag,
+        gid: "tag123".to_string(),
+    });
+
+    let result = server.asana_delete(params).await.unwrap();
+    let text = get_response_text(&result);
+
+    assert!(text.contains("success"));
+    assert!(text.contains("tag123"));
+}
+
+#[tokio::test]
+async fn test_delete_comment_success() {
+    let mock_server = MockServer::start().await;
+
+    Mock::given(method("DELETE"))
+        .and(path("/stories/story123"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({"data": {}})))
+        .mount(&mock_server)
+        .await;
+
+    let server = test_server(&mock_server.uri());
+    let params = Parameters(DeleteParams {
+        resource_type: DeleteResourceType::Comment,
+        gid: "story123".to_string(),
+    });
+
+    let result = server.asana_delete(params).await.unwrap();
+    let text = get_response_text(&result);
+
+    assert!(text.contains("success"));
+    assert!(text.contains("story123"));
+}
+
+#[tokio::test]
+async fn test_delete_status_update_success() {
+    let mock_server = MockServer::start().await;
+
+    Mock::given(method("DELETE"))
+        .and(path("/status_updates/status123"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({"data": {}})))
+        .mount(&mock_server)
+        .await;
+
+    let server = test_server(&mock_server.uri());
+    let params = Parameters(DeleteParams {
+        resource_type: DeleteResourceType::StatusUpdate,
+        gid: "status123".to_string(),
+    });
+
+    let result = server.asana_delete(params).await.unwrap();
+    let text = get_response_text(&result);
+
+    assert!(text.contains("success"));
+    assert!(text.contains("status123"));
+}
+
+#[tokio::test]
+async fn test_delete_project_brief_success() {
+    let mock_server = MockServer::start().await;
+
+    Mock::given(method("DELETE"))
+        .and(path("/project_briefs/brief123"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({"data": {}})))
+        .mount(&mock_server)
+        .await;
+
+    let server = test_server(&mock_server.uri());
+    let params = Parameters(DeleteParams {
+        resource_type: DeleteResourceType::ProjectBrief,
+        gid: "brief123".to_string(),
+    });
+
+    let result = server.asana_delete(params).await.unwrap();
+    let text = get_response_text(&result);
+
+    assert!(text.contains("success"));
+    assert!(text.contains("brief123"));
+}
+
+#[tokio::test]
+async fn test_delete_task_not_found() {
+    let mock_server = MockServer::start().await;
+
+    Mock::given(method("DELETE"))
+        .and(path("/tasks/nonexistent"))
+        .respond_with(ResponseTemplate::new(404).set_body_json(serde_json::json!({
+            "errors": [{"message": "task: Unknown object: nonexistent"}]
+        })))
+        .mount(&mock_server)
+        .await;
+
+    let server = test_server(&mock_server.uri());
+    let params = Parameters(DeleteParams {
+        resource_type: DeleteResourceType::Task,
+        gid: "nonexistent".to_string(),
+    });
+
+    let result = server.asana_delete(params).await;
+    assert!(result.is_err());
+    let err = result.unwrap_err();
+    assert!(err.message.contains("Failed to delete task"));
+}
+
+#[tokio::test]
+async fn test_delete_project_forbidden() {
+    let mock_server = MockServer::start().await;
+
+    Mock::given(method("DELETE"))
+        .and(path("/projects/proj456"))
+        .respond_with(ResponseTemplate::new(403).set_body_json(serde_json::json!({
+            "errors": [{"message": "project: Forbidden"}]
+        })))
+        .mount(&mock_server)
+        .await;
+
+    let server = test_server(&mock_server.uri());
+    let params = Parameters(DeleteParams {
+        resource_type: DeleteResourceType::Project,
+        gid: "proj456".to_string(),
+    });
+
+    let result = server.asana_delete(params).await;
+    assert!(result.is_err());
+    let err = result.unwrap_err();
+    assert!(err.message.contains("Failed to delete project"));
+}
