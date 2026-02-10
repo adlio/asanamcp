@@ -52,7 +52,30 @@ fn get_params(resource_type: ResourceType, gid: &str) -> Parameters<GetParams> {
         include_subtasks: None,
         include_dependencies: None,
         include_comments: None,
+        detail_level: DetailLevel::Default,
+        extra_fields: None,
         opt_fields: None,
+    })
+}
+
+fn get_params_with_fields(
+    resource_type: ResourceType,
+    gid: &str,
+    detail_level: DetailLevel,
+    extra_fields: Option<Vec<&str>>,
+    opt_fields: Option<Vec<&str>>,
+) -> Parameters<GetParams> {
+    Parameters(GetParams {
+        resource_type,
+        gid: Some(gid.to_string()),
+        depth: None,
+        subtask_depth: None,
+        include_subtasks: None,
+        include_dependencies: None,
+        include_comments: None,
+        detail_level,
+        extra_fields: extra_fields.map(|f| f.into_iter().map(String::from).collect()),
+        opt_fields: opt_fields.map(|f| f.into_iter().map(String::from).collect()),
     })
 }
 
@@ -139,6 +162,146 @@ async fn test_get_project_not_found() {
     assert!(result.is_err());
     let err = result.unwrap_err();
     assert!(err.message.contains("Failed to get project"));
+}
+
+// ============================================================================
+// Detail Level and Field Selection Tests
+// ============================================================================
+
+/// Custom matcher for opt_fields query parameter with dynamic string.
+struct OptFieldsEquals(String);
+
+impl Match for OptFieldsEquals {
+    fn matches(&self, request: &Request) -> bool {
+        request
+            .url
+            .query_pairs()
+            .any(|(k, v)| k == "opt_fields" && v == self.0)
+    }
+}
+
+#[tokio::test]
+async fn test_get_project_with_minimal_detail_level() {
+    let mock_server = MockServer::start().await;
+
+    Mock::given(method("GET"))
+        .and(path("/projects/proj123"))
+        .and(OptFieldsEquals(MINIMAL_FIELDS.to_string()))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "data": {
+                "gid": "proj123",
+                "name": "Test Project",
+                "resource_type": "project"
+            }
+        })))
+        .mount(&mock_server)
+        .await;
+
+    let server = test_server(&mock_server.uri());
+    let params = get_params_with_fields(
+        ResourceType::Project,
+        "proj123",
+        DetailLevel::Minimal,
+        None,
+        None,
+    );
+
+    let result = server.asana_get(params).await.unwrap();
+    assert!(get_response_text(&result).contains("Test Project"));
+}
+
+#[tokio::test]
+async fn test_get_project_with_extra_fields() {
+    let mock_server = MockServer::start().await;
+
+    let expected_fields = format!("{},due_on,owner.name", MINIMAL_FIELDS);
+    Mock::given(method("GET"))
+        .and(path("/projects/proj123"))
+        .and(OptFieldsEquals(expected_fields))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "data": {
+                "gid": "proj123",
+                "name": "Test Project",
+                "resource_type": "project",
+                "due_on": "2024-12-31",
+                "owner": {"name": "Test Owner"}
+            }
+        })))
+        .mount(&mock_server)
+        .await;
+
+    let server = test_server(&mock_server.uri());
+    let params = get_params_with_fields(
+        ResourceType::Project,
+        "proj123",
+        DetailLevel::Minimal,
+        Some(vec!["due_on", "owner.name"]),
+        None,
+    );
+
+    let result = server.asana_get(params).await.unwrap();
+    let text = get_response_text(&result);
+    assert!(text.contains("Test Project"));
+    assert!(text.contains("2024-12-31"));
+}
+
+#[tokio::test]
+async fn test_opt_fields_overrides_detail_level() {
+    let mock_server = MockServer::start().await;
+
+    Mock::given(method("GET"))
+        .and(path("/projects/proj123"))
+        .and(OptFieldsEquals("gid,custom_field".to_string()))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "data": {
+                "gid": "proj123",
+                "custom_field": "custom_value"
+            }
+        })))
+        .mount(&mock_server)
+        .await;
+
+    let server = test_server(&mock_server.uri());
+    let params = get_params_with_fields(
+        ResourceType::Project,
+        "proj123",
+        DetailLevel::Minimal,
+        Some(vec!["due_on"]),
+        Some(vec!["gid", "custom_field"]),
+    );
+
+    let result = server.asana_get(params).await.unwrap();
+    assert!(get_response_text(&result).contains("custom_value"));
+}
+
+#[tokio::test]
+async fn test_task_search_with_minimal_detail_level() {
+    let mock_server = MockServer::start().await;
+
+    Mock::given(method("GET"))
+        .and(path("/workspaces/ws123/tasks/search"))
+        .and(OptFieldsEquals(MINIMAL_FIELDS.to_string()))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "data": [
+                {"gid": "task1", "name": "Task One", "resource_type": "task"},
+                {"gid": "task2", "name": "Task Two", "resource_type": "task"}
+            ],
+            "next_page": null
+        })))
+        .mount(&mock_server)
+        .await;
+
+    let server = test_server(&mock_server.uri());
+    let params = Parameters(TaskSearchParams {
+        workspace_gid: Some("ws123".to_string()),
+        detail_level: DetailLevel::Minimal,
+        ..Default::default()
+    });
+
+    let result = server.asana_task_search(params).await.unwrap();
+    let text = get_response_text(&result);
+    assert!(text.contains("Task One"));
+    assert!(text.contains("Task Two"));
 }
 
 // ============================================================================
@@ -392,6 +555,8 @@ async fn test_get_task_without_context() {
         include_subtasks: Some(false),
         include_dependencies: Some(false),
         include_comments: Some(false),
+        detail_level: DetailLevel::Default,
+        extra_fields: None,
         opt_fields: None,
     });
 
@@ -1096,6 +1261,8 @@ async fn test_get_workspace_favorites() {
         include_subtasks: None,
         include_dependencies: None,
         include_comments: None,
+        detail_level: DetailLevel::Default,
+        extra_fields: None,
         opt_fields: None,
     });
 
@@ -2695,6 +2862,8 @@ async fn test_search_basic() {
         portfolios: None,
         sort_by: None,
         sort_ascending: None,
+        detail_level: DetailLevel::Default,
+        extra_fields: None,
         opt_fields: None,
     });
 
@@ -2740,6 +2909,8 @@ async fn test_search_with_assignee_me() {
         portfolios: None,
         sort_by: None,
         sort_ascending: None,
+        detail_level: DetailLevel::Default,
+        extra_fields: None,
         opt_fields: None,
     });
 
@@ -2784,6 +2955,8 @@ async fn test_search_with_filters() {
         modified_at_after: None,
         modified_at_before: None,
         portfolios: None,
+        detail_level: DetailLevel::Default,
+        extra_fields: None,
         opt_fields: None,
     });
 
@@ -2828,6 +3001,8 @@ async fn test_search_unassigned() {
         portfolios: None,
         sort_by: None,
         sort_ascending: None,
+        detail_level: DetailLevel::Default,
+        extra_fields: None,
         opt_fields: None,
     });
 

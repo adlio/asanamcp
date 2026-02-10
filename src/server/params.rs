@@ -4,6 +4,21 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+/// Level of detail to include in responses.
+///
+/// Controls how many fields are returned for each resource. Use `minimal` for
+/// discovery/listing operations where you just need to identify resources,
+/// and `default` for full details.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum DetailLevel {
+    /// Just gid, name, resource_type - smallest response for discovery
+    Minimal,
+    /// Curated useful fields per resource type (default behavior)
+    #[default]
+    Default,
+}
+
 /// Parameters for listing workspaces (no parameters needed).
 #[derive(Debug, Deserialize, JsonSchema)]
 pub struct WorkspacesParams {}
@@ -124,7 +139,16 @@ pub struct GetParams {
     /// Include comments when fetching a task (default: true)
     #[serde(default)]
     pub include_comments: Option<bool>,
-    /// Override default fields returned. If not provided, returns curated fields per resource type.
+    /// Level of detail: "minimal" (gid/name only) or "default" (curated fields).
+    /// Use minimal to reduce response size when you just need to identify resources.
+    #[serde(default)]
+    pub detail_level: DetailLevel,
+    /// Additional fields to include beyond the detail_level base set.
+    /// Example: ["due_on", "assignee.name"] adds these to minimal or default fields.
+    #[serde(default)]
+    pub extra_fields: Option<Vec<String>>,
+    /// Explicit field list - overrides detail_level and extra_fields entirely.
+    /// Use this for full control over exactly which fields are returned.
     /// Example: ["gid", "name", "completed", "assignee.name"]
     #[serde(default)]
     pub opt_fields: Option<Vec<String>>,
@@ -270,7 +294,7 @@ pub struct CreateParams {
 }
 
 /// Parameters for task search (rich filtering for tasks only).
-#[derive(Debug, Deserialize, JsonSchema)]
+#[derive(Debug, Default, Deserialize, JsonSchema)]
 pub struct TaskSearchParams {
     /// Workspace GID to search in (uses ASANA_DEFAULT_WORKSPACE if not provided)
     #[serde(default)]
@@ -326,7 +350,16 @@ pub struct TaskSearchParams {
     /// Sort order: asc or desc
     #[serde(default)]
     pub sort_ascending: Option<bool>,
-    /// Override default fields returned. If not provided, returns curated search result fields.
+    /// Level of detail: "minimal" (gid/name only) or "default" (curated fields).
+    /// Use minimal to reduce response size when you just need to identify tasks.
+    #[serde(default)]
+    pub detail_level: DetailLevel,
+    /// Additional fields to include beyond the detail_level base set.
+    /// Example: ["due_on", "assignee.name"] adds these to minimal or default fields.
+    #[serde(default)]
+    pub extra_fields: Option<Vec<String>>,
+    /// Explicit field list - overrides detail_level and extra_fields entirely.
+    /// Use this for full control over exactly which fields are returned.
     /// Example: ["gid", "name", "completed", "assignee.name", "due_on"]
     #[serde(default)]
     pub opt_fields: Option<Vec<String>>,

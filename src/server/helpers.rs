@@ -4,7 +4,7 @@ use crate::Error;
 use rmcp::model::{CallToolResult, Content, ErrorCode, ErrorData as McpError};
 use serde::Serialize;
 
-use super::params::LinkParams;
+use super::params::{GetParams, LinkParams, TaskSearchParams};
 
 /// Convert depth parameter to Option<usize>.
 ///
@@ -94,14 +94,63 @@ pub fn success_response(message: &str) -> Result<CallToolResult, McpError> {
     )]))
 }
 
-/// Resolve opt_fields: use provided fields if present, otherwise use default.
+use super::fields::MINIMAL_FIELDS;
+use super::params::DetailLevel;
+
+/// Resolve fields based on detail_level, extra_fields, and opt_fields.
 ///
-/// If `provided` contains fields, joins them with commas. Otherwise returns the default.
-pub fn resolve_opt_fields(provided: &Option<Vec<String>>, default: &str) -> String {
-    match provided {
-        Some(fields) if !fields.is_empty() => fields.join(","),
-        _ => default.to_string(),
+/// Resolution order:
+/// 1. If `opt_fields` is provided and non-empty, use those exactly (full override)
+/// 2. Otherwise, start with base fields from `detail_level`:
+///    - `Minimal`: gid, name, resource_type
+///    - `Default`: the provided `default_fields`
+/// 3. If `extra_fields` is provided, append those to the base
+pub fn resolve_fields_with_level(
+    detail_level: DetailLevel,
+    extra_fields: &Option<Vec<String>>,
+    opt_fields: &Option<Vec<String>>,
+    default_fields: &str,
+) -> String {
+    // If opt_fields is explicitly provided, use those (full override)
+    if let Some(fields) = opt_fields.as_ref().filter(|f| !f.is_empty()) {
+        return fields.join(",");
     }
+
+    // Start with base fields based on detail level
+    let base = match detail_level {
+        DetailLevel::Minimal => MINIMAL_FIELDS,
+        DetailLevel::Default => default_fields,
+    };
+
+    // If extra_fields provided, append them
+    if let Some(extras) = extra_fields.as_ref().filter(|e| !e.is_empty()) {
+        format!("{},{}", base, extras.join(","))
+    } else {
+        base.to_string()
+    }
+}
+
+/// Helper to resolve fields from GetParams.
+pub fn resolve_fields_from_get_params(params: &GetParams, default_fields: &str) -> String {
+    resolve_fields_with_level(
+        params.detail_level,
+        &params.extra_fields,
+        &params.opt_fields,
+        default_fields,
+    )
+}
+
+/// Helper to resolve fields from TaskSearchParams.
+pub fn resolve_fields_from_task_search_params(
+    params: &TaskSearchParams,
+    default_fields: &str,
+) -> String {
+    resolve_fields_with_level(
+        params.detail_level,
+        &params.extra_fields,
+        &params.opt_fields,
+        default_fields,
+    )
 }
 
 /// Extract item GIDs from link parameters.
@@ -277,5 +326,77 @@ mod tests {
         let result = get_item_gids(&params);
         assert!(result.is_err());
         assert!(result.unwrap_err().message.contains("required"));
+    }
+
+    #[test]
+    fn test_opt_fields_override() {
+        // When opt_fields is provided, it should override everything
+        let result = resolve_fields_with_level(
+            DetailLevel::Minimal,
+            &Some(vec!["extra".to_string()]),
+            &Some(vec!["custom1".to_string(), "custom2".to_string()]),
+            "default_fields",
+        );
+        assert_eq!(result, "custom1,custom2");
+    }
+
+    #[test]
+    fn test_minimal_detail_level() {
+        // Minimal detail level should return MINIMAL_FIELDS
+        let result =
+            resolve_fields_with_level(DetailLevel::Minimal, &None, &None, "default_fields");
+        assert_eq!(result, MINIMAL_FIELDS);
+    }
+
+    #[test]
+    fn test_default_detail_level() {
+        // Default detail level should return the provided default fields
+        let result = resolve_fields_with_level(
+            DetailLevel::Default,
+            &None,
+            &None,
+            "gid,name,completed,assignee",
+        );
+        assert_eq!(result, "gid,name,completed,assignee");
+    }
+
+    #[test]
+    fn test_minimal_with_extra_fields() {
+        // Minimal + extra_fields should combine them
+        let result = resolve_fields_with_level(
+            DetailLevel::Minimal,
+            &Some(vec!["due_on".to_string(), "assignee.name".to_string()]),
+            &None,
+            "default_fields",
+        );
+        assert_eq!(result, "gid,name,resource_type,due_on,assignee.name");
+    }
+
+    #[test]
+    fn test_default_with_extra_fields() {
+        // Default + extra_fields should combine them
+        let result = resolve_fields_with_level(
+            DetailLevel::Default,
+            &Some(vec!["custom_field".to_string()]),
+            &None,
+            "gid,name",
+        );
+        assert_eq!(result, "gid,name,custom_field");
+    }
+
+    #[test]
+    fn test_empty_extra_fields_ignored() {
+        // Empty extra_fields should be ignored
+        let result =
+            resolve_fields_with_level(DetailLevel::Minimal, &Some(vec![]), &None, "default_fields");
+        assert_eq!(result, MINIMAL_FIELDS);
+    }
+
+    #[test]
+    fn test_empty_opt_fields_ignored() {
+        // Empty opt_fields should fall back to detail_level
+        let result =
+            resolve_fields_with_level(DetailLevel::Default, &None, &Some(vec![]), "default_fields");
+        assert_eq!(result, "default_fields");
     }
 }

@@ -129,7 +129,7 @@ impl AsanaServer {
         match p.resource_type {
             ResourceType::Project => {
                 let gid = require_gid(&p.gid, "project")?;
-                let fields = resolve_opt_fields(&p.opt_fields, PROJECT_FIELDS);
+                let fields = resolve_fields_from_get_params(&p, PROJECT_FIELDS);
                 let project: Resource = self
                     .client
                     .get(&format!("/projects/{}", gid), &[("opt_fields", &fields)])
@@ -301,7 +301,7 @@ impl AsanaServer {
             }
 
             ResourceType::AllWorkspaces => {
-                let fields = resolve_opt_fields(&p.opt_fields, WORKSPACE_FIELDS);
+                let fields = resolve_fields_from_get_params(&p, WORKSPACE_FIELDS);
                 let workspaces: Vec<Resource> = self
                     .client
                     .get_all("/workspaces", &[("opt_fields", &fields)])
@@ -312,7 +312,7 @@ impl AsanaServer {
 
             ResourceType::Workspace => {
                 let gid = require_gid(&p.gid, "workspace")?;
-                let fields = resolve_opt_fields(&p.opt_fields, WORKSPACE_FIELDS);
+                let fields = resolve_fields_from_get_params(&p, WORKSPACE_FIELDS);
                 let workspace: Resource = self
                     .client
                     .get(&format!("/workspaces/{}", gid), &[("opt_fields", &fields)])
@@ -324,7 +324,7 @@ impl AsanaServer {
             ResourceType::WorkspaceTemplates => {
                 // Note: Asana's API uses /project_templates (not workspace-scoped)
                 // If team_gid is provided via gid, use team endpoint; otherwise list all
-                let fields = resolve_opt_fields(&p.opt_fields, TEMPLATE_FIELDS);
+                let fields = resolve_fields_from_get_params(&p, TEMPLATE_FIELDS);
                 let templates: Vec<Resource> =
                     if let Some(team_gid) = p.gid.as_ref().filter(|s| !s.is_empty()) {
                         // Treat gid as team_gid for team-scoped templates
@@ -347,7 +347,7 @@ impl AsanaServer {
 
             ResourceType::ProjectTemplate => {
                 let gid = require_gid(&p.gid, "project_template")?;
-                let fields = resolve_opt_fields(&p.opt_fields, TEMPLATE_FIELDS);
+                let fields = resolve_fields_from_get_params(&p, TEMPLATE_FIELDS);
                 let template: Resource = self
                     .client
                     .get(
@@ -361,7 +361,7 @@ impl AsanaServer {
 
             ResourceType::ProjectSections => {
                 let gid = require_gid(&p.gid, "project_sections")?;
-                let fields = resolve_opt_fields(&p.opt_fields, SECTION_FIELDS);
+                let fields = resolve_fields_from_get_params(&p, SECTION_FIELDS);
                 let sections: Vec<Resource> = self
                     .client
                     .get_all(
@@ -375,7 +375,7 @@ impl AsanaServer {
 
             ResourceType::Section => {
                 let gid = require_gid(&p.gid, "section")?;
-                let fields = resolve_opt_fields(&p.opt_fields, SECTION_FIELDS);
+                let fields = resolve_fields_from_get_params(&p, SECTION_FIELDS);
                 let section: Resource = self
                     .client
                     .get(&format!("/sections/{}", gid), &[("opt_fields", &fields)])
@@ -386,7 +386,7 @@ impl AsanaServer {
 
             ResourceType::WorkspaceTags => {
                 let workspace_gid = self.resolve_workspace_gid(p.gid.as_deref())?;
-                let fields = resolve_opt_fields(&p.opt_fields, TAG_FIELDS);
+                let fields = resolve_fields_from_get_params(&p, TAG_FIELDS);
                 let tags: Vec<Resource> = self
                     .client
                     .get_all(
@@ -400,7 +400,7 @@ impl AsanaServer {
 
             ResourceType::Tag => {
                 let gid = require_gid(&p.gid, "tag")?;
-                let fields = resolve_opt_fields(&p.opt_fields, TAG_FIELDS);
+                let fields = resolve_fields_from_get_params(&p, TAG_FIELDS);
                 let tag: Resource = self
                     .client
                     .get(&format!("/tags/{}", gid), &[("opt_fields", &fields)])
@@ -411,7 +411,7 @@ impl AsanaServer {
 
             ResourceType::MyTasks => {
                 let workspace_gid = self.resolve_workspace_gid(p.gid.as_deref())?;
-                let fields = resolve_opt_fields(&p.opt_fields, RECURSIVE_TASK_FIELDS);
+                let fields = resolve_fields_from_get_params(&p, RECURSIVE_TASK_FIELDS);
                 // First get the user's task list for this workspace
                 let task_list: Resource = self
                     .client
@@ -436,7 +436,7 @@ impl AsanaServer {
 
             ResourceType::WorkspaceProjects => {
                 let workspace_gid = self.resolve_workspace_gid(p.gid.as_deref())?;
-                let fields = resolve_opt_fields(&p.opt_fields, PROJECT_FIELDS);
+                let fields = resolve_fields_from_get_params(&p, PROJECT_FIELDS);
                 let projects: Vec<Resource> = self
                     .client
                     .get_all(
@@ -449,7 +449,7 @@ impl AsanaServer {
             }
 
             ResourceType::Me => {
-                let fields = resolve_opt_fields(&p.opt_fields, USER_FIELDS);
+                let fields = resolve_fields_from_get_params(&p, USER_FIELDS);
                 let user: Resource = self
                     .client
                     .get("/users/me", &[("opt_fields", &fields)])
@@ -460,7 +460,7 @@ impl AsanaServer {
 
             ResourceType::User => {
                 let gid = require_gid(&p.gid, "user")?;
-                let fields = resolve_opt_fields(&p.opt_fields, USER_FIELDS);
+                let fields = resolve_fields_from_get_params(&p, USER_FIELDS);
                 let user: Resource = self
                     .client
                     .get(&format!("/users/{}", gid), &[("opt_fields", &fields)])
@@ -471,7 +471,7 @@ impl AsanaServer {
 
             ResourceType::WorkspaceUsers => {
                 let workspace_gid = self.resolve_workspace_gid(p.gid.as_deref())?;
-                let fields = resolve_opt_fields(&p.opt_fields, USER_FIELDS);
+                let fields = resolve_fields_from_get_params(&p, USER_FIELDS);
                 let users: Vec<Resource> = self
                     .client
                     .get_all(
@@ -485,7 +485,7 @@ impl AsanaServer {
 
             ResourceType::Team => {
                 let gid = require_gid(&p.gid, "team")?;
-                let fields = resolve_opt_fields(&p.opt_fields, TEAM_FIELDS);
+                let fields = resolve_fields_from_get_params(&p, TEAM_FIELDS);
                 let team: Resource = self
                     .client
                     .get(&format!("/teams/{}", gid), &[("opt_fields", &fields)])
@@ -496,7 +496,7 @@ impl AsanaServer {
 
             ResourceType::WorkspaceTeams => {
                 let workspace_gid = self.resolve_workspace_gid(p.gid.as_deref())?;
-                let fields = resolve_opt_fields(&p.opt_fields, TEAM_FIELDS);
+                let fields = resolve_fields_from_get_params(&p, TEAM_FIELDS);
                 let teams: Vec<Resource> = self
                     .client
                     .get_all(
@@ -510,7 +510,7 @@ impl AsanaServer {
 
             ResourceType::TeamUsers => {
                 let gid = require_gid(&p.gid, "team_users")?;
-                let fields = resolve_opt_fields(&p.opt_fields, USER_FIELDS);
+                let fields = resolve_fields_from_get_params(&p, USER_FIELDS);
                 let users: Vec<Resource> = self
                     .client
                     .get_all(&format!("/teams/{}/users", gid), &[("opt_fields", &fields)])
@@ -521,7 +521,7 @@ impl AsanaServer {
 
             ResourceType::ProjectCustomFields => {
                 let gid = require_gid(&p.gid, "project_custom_fields")?;
-                let fields = resolve_opt_fields(&p.opt_fields, CUSTOM_FIELD_SETTINGS_FIELDS);
+                let fields = resolve_fields_from_get_params(&p, CUSTOM_FIELD_SETTINGS_FIELDS);
                 let settings: Vec<Resource> = self
                     .client
                     .get_all(
@@ -535,7 +535,7 @@ impl AsanaServer {
 
             ResourceType::ProjectBrief => {
                 let gid = require_gid(&p.gid, "project_brief (brief GID)")?;
-                let fields = resolve_opt_fields(&p.opt_fields, PROJECT_BRIEF_FIELDS);
+                let fields = resolve_fields_from_get_params(&p, PROJECT_BRIEF_FIELDS);
                 let brief: Resource = self
                     .client
                     .get(
@@ -1450,7 +1450,7 @@ impl AsanaServer {
     ) -> Result<CallToolResult, McpError> {
         let p = params.0;
         let workspace_gid = self.resolve_workspace_gid(p.workspace_gid.as_deref())?;
-        let fields = resolve_opt_fields(&p.opt_fields, SEARCH_FIELDS);
+        let fields = resolve_fields_from_task_search_params(&p, SEARCH_FIELDS);
 
         // Build query parameters
         let mut query_params: Vec<(String, String)> = vec![("opt_fields".to_string(), fields)];

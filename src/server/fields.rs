@@ -3,6 +3,13 @@
 //! These constants define which fields to request from the Asana API
 //! for each resource type. Including specific fields reduces response
 //! size and improves performance.
+//!
+//! Each resource type has two field sets:
+//! - `*_FIELDS_MINIMAL`: Just gid, name, resource_type for discovery/listing
+//! - `*_FIELDS`: Curated useful fields (the default)
+
+/// Minimal fields for any resource - just enough to identify it.
+pub const MINIMAL_FIELDS: &str = "gid,name,resource_type";
 
 /// Fields to request for project resources.
 pub const PROJECT_FIELDS: &str = "gid,name,color,archived,public,owner,owner.name,\
