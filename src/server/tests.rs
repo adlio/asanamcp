@@ -977,6 +977,60 @@ async fn test_create_comment_html() {
     assert!(text.contains("<strong>Bold</strong>"));
 }
 
+#[tokio::test]
+async fn test_create_comment_html_takes_priority_over_text() {
+    let mock_server = MockServer::start().await;
+
+    // When both html_text and text are provided, html_text should win
+    Mock::given(method("POST"))
+        .and(path("/tasks/task123/stories"))
+        .and(body_json(
+            serde_json::json!({"data": {"html_text": "<body><strong>HTML wins</strong></body>"}}),
+        ))
+        .respond_with(ResponseTemplate::new(201).set_body_json(serde_json::json!({
+            "data": {
+                "gid": "story789",
+                "html_text": "<body><strong>HTML wins</strong></body>",
+                "resource_subtype": "comment_added"
+            }
+        })))
+        .mount(&mock_server)
+        .await;
+
+    let server = test_server(&mock_server.uri());
+    let params = Parameters(CreateParams {
+        resource_type: CreateResourceType::Comment,
+        task_gid: Some("task123".to_string()),
+        text: Some("plain text ignored".to_string()),
+        html_text: Some("<body><strong>HTML wins</strong></body>".to_string()),
+        workspace_gid: None,
+        name: None,
+        project_gid: None,
+        team_gid: None,
+        parent_gid: None,
+        template_gid: None,
+        requested_dates: None,
+        requested_roles: None,
+        notes: None,
+        html_notes: None,
+        color: None,
+        due_on: None,
+        start_on: None,
+        assignee: None,
+        privacy_setting: None,
+        public: None,
+        status_type: None,
+        title: None,
+        custom_fields: None,
+        source_gid: None,
+        include: None,
+        opt_fields: None,
+    });
+
+    let result = server.asana_create(params).await.unwrap();
+    assert!(get_response_text(&result).contains("HTML wins"));
+}
+
 // ============================================================================
 // Update Tests
 // ============================================================================
@@ -1236,6 +1290,74 @@ async fn test_status_updates_portfolio_success() {
     assert!(text.contains("Portfolio status"));
 }
 
+#[tokio::test]
+async fn test_get_status_update_not_found() {
+    let mock_server = MockServer::start().await;
+
+    Mock::given(method("GET"))
+        .and(path("/status_updates/invalid999"))
+        .respond_with(ResponseTemplate::new(404).set_body_json(serde_json::json!({
+            "errors": [{"message": "status_update: Unknown object: invalid999"}]
+        })))
+        .mount(&mock_server)
+        .await;
+
+    let server = test_server(&mock_server.uri());
+    let result = server
+        .asana_get(get_params(ResourceType::StatusUpdate, "invalid999"))
+        .await;
+
+    assert!(result.is_err());
+    let err = result.unwrap_err();
+    assert!(err.message.contains("Unknown object"));
+}
+
+#[tokio::test]
+async fn test_get_status_update_requires_gid() {
+    let mock_server = MockServer::start().await;
+    let server = test_server(&mock_server.uri());
+
+    let params = Parameters(GetParams {
+        resource_type: ResourceType::StatusUpdate,
+        gid: None,
+        depth: None,
+        subtask_depth: None,
+        include_subtasks: None,
+        include_dependencies: None,
+        include_comments: None,
+        detail_level: DetailLevel::Default,
+        extra_fields: None,
+        opt_fields: None,
+    });
+
+    let result = server.asana_get(params).await;
+    assert!(result.is_err());
+    assert!(result.unwrap_err().message.contains("gid is required"));
+}
+
+#[tokio::test]
+async fn test_get_status_updates_not_found() {
+    let mock_server = MockServer::start().await;
+
+    Mock::given(method("GET"))
+        .and(path("/status_updates"))
+        .and(query_param("parent", "invalid999"))
+        .respond_with(ResponseTemplate::new(404).set_body_json(serde_json::json!({
+            "errors": [{"message": "parent: Unknown object: invalid999"}]
+        })))
+        .mount(&mock_server)
+        .await;
+
+    let server = test_server(&mock_server.uri());
+    let result = server
+        .asana_get(get_params(ResourceType::StatusUpdates, "invalid999"))
+        .await;
+
+    assert!(result.is_err());
+    let err = result.unwrap_err();
+    assert!(err.message.contains("Unknown object"));
+}
+
 // ============================================================================
 // Alias Backward Compatibility Tests
 // ============================================================================
@@ -1412,6 +1534,62 @@ async fn test_get_task_comments() {
     assert!(text.contains("Great work!"));
     assert!(text.contains("Thanks!"));
     assert!(!text.contains("Assigned to John"));
+}
+
+#[tokio::test]
+async fn test_get_task_subtasks_minimal() {
+    let mock_server = MockServer::start().await;
+
+    Mock::given(method("GET"))
+        .and(path("/tasks/task123/subtasks"))
+        .and(OptFieldsEquals(MINIMAL_FIELDS.to_string()))
+        .and(NoOffset)
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "data": [{"gid": "sub1", "name": "Subtask 1", "resource_type": "task"}],
+            "next_page": null
+        })))
+        .mount(&mock_server)
+        .await;
+
+    let server = test_server(&mock_server.uri());
+    let params = get_params_with_fields(
+        ResourceType::TaskSubtasks,
+        "task123",
+        DetailLevel::Minimal,
+        None,
+        None,
+    );
+
+    let result = server.asana_get(params).await.unwrap();
+    assert!(get_response_text(&result).contains("Subtask 1"));
+}
+
+#[tokio::test]
+async fn test_get_task_comments_minimal() {
+    let mock_server = MockServer::start().await;
+
+    Mock::given(method("GET"))
+        .and(path("/tasks/task123/stories"))
+        .and(OptFieldsEquals(MINIMAL_FIELDS.to_string()))
+        .and(NoOffset)
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "data": [{"gid": "story1", "resource_subtype": "comment_added", "name": "Comment"}],
+            "next_page": null
+        })))
+        .mount(&mock_server)
+        .await;
+
+    let server = test_server(&mock_server.uri());
+    let params = get_params_with_fields(
+        ResourceType::TaskComments,
+        "task123",
+        DetailLevel::Minimal,
+        None,
+        None,
+    );
+
+    let result = server.asana_get(params).await.unwrap();
+    assert!(get_response_text(&result).contains("story1"));
 }
 
 #[tokio::test]

@@ -250,11 +250,12 @@ impl AsanaServer {
 
             ResourceType::TaskSubtasks => {
                 let gid = require_gid(&p.gid, "task_subtasks")?;
+                let fields = resolve_fields_from_get_params(&p, SUBTASK_FIELDS);
                 let subtasks: Vec<Resource> = self
                     .client
                     .get_all(
                         &format!("/tasks/{}/subtasks", gid),
-                        &[("opt_fields", SUBTASK_FIELDS)],
+                        &[("opt_fields", &fields)],
                     )
                     .await
                     .map_err(|e| error_to_mcp("Failed to get subtasks", e))?;
@@ -263,11 +264,12 @@ impl AsanaServer {
 
             ResourceType::TaskComments => {
                 let gid = require_gid(&p.gid, "task_comments")?;
+                let fields = resolve_fields_from_get_params(&p, STORY_FIELDS);
                 let stories: Vec<Story> = self
                     .client
                     .get_all(
                         &format!("/tasks/{}/stories", gid),
-                        &[("opt_fields", STORY_FIELDS)],
+                        &[("opt_fields", &fields)],
                     )
                     .await
                     .map_err(|e| error_to_mcp("Failed to get comments", e))?;
