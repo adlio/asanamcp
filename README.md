@@ -12,7 +12,20 @@ MCP server for the Asana API.
 
 1. Get an Asana Personal Access Token at https://app.asana.com/0/my-apps
 
-2. Add to Claude Desktop config (`~/Library/Application Support/Claude/claude_desktop_config.json`):
+2. Install:
+
+```bash
+# Homebrew
+brew install adlio/tap/asanamcp
+
+# From crates.io
+cargo install asanamcp
+
+# From GitHub
+cargo install --git https://github.com/adlio/asanamcp
+```
+
+3. Add to Claude Desktop config (`~/Library/Application Support/Claude/claude_desktop_config.json`):
 
 ```json
 {
@@ -30,37 +43,7 @@ MCP server for the Asana API.
 
 The `ASANA_DEFAULT_WORKSPACE` is optional but recommended if you work primarily in one workspace. When set, workspace-based operations (search, list projects, list users, etc.) will use this default, reducing the need to specify workspace GID in every request.
 
-3. Install:
-
-```bash
-# From crates.io (when published)
-cargo install asanamcp
-
-# From GitHub
-cargo install --git https://github.com/adlio/asanamcp
-
-# From local clone
-git clone https://github.com/adlio/asanamcp
-cd asanamcp
-make install
-```
-
-## After Installation
-
-The binary is installed to `~/.cargo/bin/asanamcp`. Ensure `~/.cargo/bin` is in your PATH:
-
-```bash
-# Check installation
-which asanamcp
-# Should output: /Users/<you>/.cargo/bin/asanamcp
-
-# Verify it runs
-asanamcp --help
-```
-
-### Testing the Server
-
-Before configuring Claude Desktop, verify the server works:
+## Testing the Server
 
 ```bash
 # Dump tool schemas (useful for debugging)
@@ -73,8 +56,6 @@ asanamcp --schema get
 make inspect
 ```
 
-The MCP Inspector (`make inspect`) opens a browser-based UI where you can see all available tools, their schemas, and test API calls interactively. This is useful for troubleshooting.
-
 ## Tools
 
 | Tool | Description |
@@ -83,6 +64,7 @@ The MCP Inspector (`make inspect`) opens a browser-based UI where you can see al
 | `asana_get` | Fetch any resource (projects, tasks, portfolios, etc.) |
 | `asana_create` | Create resources (tasks, comments, projects, etc.) |
 | `asana_update` | Update existing resources |
+| `asana_delete` | Permanently delete resources (irreversible) |
 | `asana_link` | Manage relationships (task↔project, dependencies, etc.) |
 | `asana_task_search` | Search for tasks with rich filters (assignee, due date, etc.) |
 | `asana_resource_search` | Search for resources by name (projects, templates, users, teams, etc.) |
@@ -110,7 +92,9 @@ Fetch any Asana resource with recursive traversal support.
 | `project_tasks` | project/portfolio GID | `subtask_depth` |
 | `task_subtasks` | task GID | |
 | `task_comments` | task GID | |
-| `project_status_updates` | project/portfolio GID | |
+| `status_update` | status update GID | Single status update by GID |
+| `status_updates` | parent GID | List status updates for a project/portfolio |
+| `all_workspaces` | (ignored) | All accessible workspaces |
 | `workspace` | workspace GID | |
 | `project_template` | template GID | |
 | `project_sections` | project GID | |
@@ -158,6 +142,16 @@ Depth: `-1` = unlimited, `0` = none, `N` = N levels.
 ```
 
 Supports: `task`, `project`, `portfolio`, `section`, `tag`, `comment`, `status_update`, `project_brief` (Key Resources on Overview tab, NOT the Note tab).
+
+### asana_delete
+
+Permanently delete an Asana resource. This action is **irreversible**.
+
+```json
+{"resource_type": "task", "gid": "123"}
+```
+
+Supports: `task`, `project`, `portfolio`, `section`, `tag`, `comment`, `status_update`, `project_brief`.
 
 ### asana_link
 
