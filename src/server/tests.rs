@@ -1096,7 +1096,39 @@ async fn test_link_requires_item_gid() {
 }
 
 // ============================================================================
-// Status Updates Fallback Tests
+// Status Update (Single) Tests
+// ============================================================================
+
+#[tokio::test]
+async fn test_get_status_update() {
+    let mock_server = MockServer::start().await;
+
+    Mock::given(method("GET"))
+        .and(path("/status_updates/status123"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "data": {
+                "gid": "status123",
+                "title": "Week 5 Update",
+                "text": "Everything is on track",
+                "status_type": "on_track"
+            }
+        })))
+        .mount(&mock_server)
+        .await;
+
+    let server = test_server(&mock_server.uri());
+    let result = server
+        .asana_get(get_params(ResourceType::StatusUpdate, "status123"))
+        .await
+        .unwrap();
+    let text = get_response_text(&result);
+
+    assert!(text.contains("Week 5 Update"));
+    assert!(text.contains("on_track"));
+}
+
+// ============================================================================
+// Status Updates List Tests
 // ============================================================================
 
 #[tokio::test]
@@ -1104,7 +1136,8 @@ async fn test_status_updates_project_success() {
     let mock_server = MockServer::start().await;
 
     Mock::given(method("GET"))
-        .and(path("/projects/proj123/status_updates"))
+        .and(path("/status_updates"))
+        .and(query_param("parent", "proj123"))
         .and(NoOffset)
         .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
             "data": [{"gid": "status1", "title": "On track"}],
@@ -1115,7 +1148,7 @@ async fn test_status_updates_project_success() {
 
     let server = test_server(&mock_server.uri());
     let result = server
-        .asana_get(get_params(ResourceType::ProjectStatusUpdates, "proj123"))
+        .asana_get(get_params(ResourceType::StatusUpdates, "proj123"))
         .await
         .unwrap();
     let text = get_response_text(&result);
@@ -1124,19 +1157,12 @@ async fn test_status_updates_project_success() {
 }
 
 #[tokio::test]
-async fn test_status_updates_falls_back_to_portfolio() {
+async fn test_status_updates_portfolio_success() {
     let mock_server = MockServer::start().await;
 
-    // Project returns 404
     Mock::given(method("GET"))
-        .and(path("/projects/port123/status_updates"))
-        .respond_with(ResponseTemplate::new(404))
-        .mount(&mock_server)
-        .await;
-
-    // Portfolio succeeds
-    Mock::given(method("GET"))
-        .and(path("/portfolios/port123/status_updates"))
+        .and(path("/status_updates"))
+        .and(query_param("parent", "port123"))
         .and(NoOffset)
         .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
             "data": [{"gid": "status2", "title": "Portfolio status"}],
@@ -1147,7 +1173,7 @@ async fn test_status_updates_falls_back_to_portfolio() {
 
     let server = test_server(&mock_server.uri());
     let result = server
-        .asana_get(get_params(ResourceType::ProjectStatusUpdates, "port123"))
+        .asana_get(get_params(ResourceType::StatusUpdates, "port123"))
         .await
         .unwrap();
     let text = get_response_text(&result);

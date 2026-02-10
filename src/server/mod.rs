@@ -102,7 +102,8 @@ impl AsanaServer {
             - project_tasks: Get all tasks from a project/portfolio (gid = project/portfolio GID, use subtask_depth)\n\
             - task_subtasks: Get subtasks of a task (gid = task GID)\n\
             - task_comments: Get comments on a task (gid = task GID)\n\
-            - project_status_updates: Get status history (gid = project/portfolio GID)\n\
+            - status_update: Get a single status update by its GID (gid = the status update's own GID)\n\
+            - status_updates: List all status updates posted on a project, portfolio, or goal (gid = the parent project/portfolio/goal GID)\n\
             - all_workspaces: List all workspaces (gid is ignored)\n\
             - workspace: Get a single workspace (gid = workspace GID)\n\
             - workspace_templates: List templates (gid = team GID for team templates, or empty for all)\n\
@@ -274,29 +275,31 @@ impl AsanaServer {
                 json_response(&comments)
             }
 
-            ResourceType::ProjectStatusUpdates => {
-                let gid = require_gid(&p.gid, "project_status_updates")?;
-                // Try as project first, then as portfolio
-                let project_result: Result<Vec<Resource>, _> = self
+            ResourceType::StatusUpdate => {
+                let gid = require_gid(&p.gid, "status_update")?;
+                let fields = resolve_fields_from_get_params(&p, STATUS_UPDATE_FIELDS);
+                let status: Resource = self
+                    .client
+                    .get(
+                        &format!("/status_updates/{}", gid),
+                        &[("opt_fields", &fields)],
+                    )
+                    .await
+                    .map_err(|e| error_to_mcp("Failed to get status update", e))?;
+                json_response(&status)
+            }
+
+            ResourceType::StatusUpdates => {
+                let gid = require_gid(&p.gid, "status_updates")?;
+                let fields = resolve_fields_from_get_params(&p, STATUS_UPDATE_FIELDS);
+                let updates: Vec<Resource> = self
                     .client
                     .get_all(
-                        &format!("/projects/{}/status_updates", gid),
-                        &[("opt_fields", STATUS_UPDATE_FIELDS)],
+                        "/status_updates",
+                        &[("parent", &gid), ("opt_fields", &fields)],
                     )
-                    .await;
-
-                let updates = match project_result {
-                    Ok(updates) => updates,
-                    Err(Error::NotFound(_)) => self
-                        .client
-                        .get_all(
-                            &format!("/portfolios/{}/status_updates", gid),
-                            &[("opt_fields", STATUS_UPDATE_FIELDS)],
-                        )
-                        .await
-                        .map_err(|e| error_to_mcp("Failed to get status updates", e))?,
-                    Err(e) => return Err(error_to_mcp("Failed to get status updates", e)),
-                };
+                    .await
+                    .map_err(|e| error_to_mcp("Failed to get status updates", e))?;
                 json_response(&updates)
             }
 

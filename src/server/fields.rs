@@ -51,7 +51,7 @@ pub const STORY_FIELDS: &str = "gid,created_at,created_by,created_by.name,\
     resource_subtype,text,html_text,is_pinned,is_edited,num_likes,liked";
 
 /// Fields to request for status updates.
-pub const STATUS_UPDATE_FIELDS: &str = "gid,title,text,html_text,status_type,\
+pub const STATUS_UPDATE_FIELDS: &str = "gid,resource_subtype,title,text,html_text,status_type,\
     created_at,created_by,created_by.name,modified_at,parent,parent.name";
 
 /// Fields to request for workspaces.

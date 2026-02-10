@@ -33,7 +33,8 @@ pub struct WorkspacesParams {}
 /// - `my_tasks`: GID of the workspace to get user's assigned tasks from
 /// - `project_tasks`: GID of the project or portfolio to get tasks from
 /// - `task_subtasks`, `task_comments`: GID of the parent task
-/// - `project_status_updates`: GID of the project or portfolio
+/// - `status_update`: GID of the status update
+/// - `status_updates`: GID of the project, portfolio, or goal
 /// - `project_sections`: GID of the project
 /// - `all_workspaces`: GID is ignored
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, JsonSchema)]
@@ -57,9 +58,12 @@ pub enum ResourceType {
     /// Get comments on a task (gid = task GID)
     #[serde(rename = "task_comments", alias = "comments")]
     TaskComments,
-    /// Get status update history (gid = project/portfolio GID)
-    #[serde(rename = "project_status_updates", alias = "status_updates")]
-    ProjectStatusUpdates,
+    /// Get a single status update by its own GID (gid = status update GID)
+    #[serde(rename = "status_update")]
+    StatusUpdate,
+    /// List all status updates posted on a project, portfolio, or goal (gid = parent GID)
+    #[serde(rename = "status_updates")]
+    StatusUpdates,
     /// List all workspaces (gid is ignored)
     #[serde(rename = "all_workspaces", alias = "workspaces")]
     AllWorkspaces,
