@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `--version` / `-V` flag with build metadata (git SHA, dirty state, build timestamp)
+
+### Fixed
+
+- Obsolete sections in README.md
+
 ## [0.3.1] - 2026-02-09
 
 ### Added
