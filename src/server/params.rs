@@ -277,7 +277,8 @@ pub struct CreateParams {
     /// Text content (for comment, status_update, project_brief)
     #[serde(default)]
     pub text: Option<String>,
-    /// HTML text content (for project_brief only - use html_notes for tasks/projects)
+    /// HTML text content (for comment or project_brief - use html_notes for tasks/projects).
+    /// Cannot be used together with text; provide one or the other.
     #[serde(default)]
     pub html_text: Option<String>,
     /// Custom field values as {field_gid: value}
@@ -488,7 +489,8 @@ pub struct UpdateParams {
     /// New text content (for comment, status_update, project_brief)
     #[serde(default)]
     pub text: Option<String>,
-    /// New HTML text content (for project_brief only - use html_notes for tasks/projects)
+    /// New HTML text content (for comment or project_brief - use html_notes for tasks/projects).
+    /// Cannot be used together with text; provide one or the other.
     #[serde(default)]
     pub html_text: Option<String>,
     /// New title (for status_update)

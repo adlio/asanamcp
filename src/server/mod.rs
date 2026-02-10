@@ -795,12 +795,19 @@ impl AsanaServer {
                 let task_gid = p
                     .task_gid
                     .ok_or_else(|| validation_error("task_gid is required for comment"))?;
-                let text = p
-                    .text
-                    .or(p.notes)
-                    .ok_or_else(|| validation_error("text or notes is required for comment"))?;
 
-                let body = serde_json::json!({"data": {"text": text}});
+                let mut data = serde_json::Map::new();
+                if let Some(html) = p.html_text {
+                    data.insert("html_text".to_string(), serde_json::json!(html));
+                } else if let Some(text) = p.text.or(p.notes) {
+                    data.insert("text".to_string(), serde_json::json!(text));
+                } else {
+                    return Err(validation_error(
+                        "text, html_text, or notes is required for comment",
+                    ));
+                }
+
+                let body = serde_json::json!({"data": data});
                 let story: Resource = self
                     .client
                     .post(&format!("/tasks/{}/stories", task_gid), &body)
@@ -1093,10 +1100,18 @@ impl AsanaServer {
             }
 
             UpdateResourceType::Comment => {
-                let text = p
-                    .text
-                    .ok_or_else(|| validation_error("text is required for comment update"))?;
-                let body = serde_json::json!({"data": {"text": text}});
+                let mut data = serde_json::Map::new();
+                if let Some(html) = p.html_text {
+                    data.insert("html_text".to_string(), serde_json::json!(html));
+                } else if let Some(text) = p.text {
+                    data.insert("text".to_string(), serde_json::json!(text));
+                } else {
+                    return Err(validation_error(
+                        "text or html_text is required for comment update",
+                    ));
+                }
+
+                let body = serde_json::json!({"data": data});
                 let story: Resource = self
                     .client
                     .put(&format!("/stories/{}", p.gid), &body)

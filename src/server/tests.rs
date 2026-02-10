@@ -922,6 +922,61 @@ async fn test_create_comment_success() {
     assert!(text.contains("Hello world"));
 }
 
+#[tokio::test]
+async fn test_create_comment_html() {
+    let mock_server = MockServer::start().await;
+
+    Mock::given(method("POST"))
+        .and(path("/tasks/task123/stories"))
+        .and(body_json(
+            serde_json::json!({"data": {"html_text": "<body><strong>Bold</strong></body>"}}),
+        ))
+        .respond_with(ResponseTemplate::new(201).set_body_json(serde_json::json!({
+            "data": {
+                "gid": "story456",
+                "html_text": "<body><strong>Bold</strong></body>",
+                "resource_subtype": "comment_added"
+            }
+        })))
+        .mount(&mock_server)
+        .await;
+
+    let server = test_server(&mock_server.uri());
+    let params = Parameters(CreateParams {
+        resource_type: CreateResourceType::Comment,
+        task_gid: Some("task123".to_string()),
+        text: None,
+        html_text: Some("<body><strong>Bold</strong></body>".to_string()),
+        workspace_gid: None,
+        name: None,
+        project_gid: None,
+        team_gid: None,
+        parent_gid: None,
+        template_gid: None,
+        requested_dates: None,
+        requested_roles: None,
+        notes: None,
+        html_notes: None,
+        color: None,
+        due_on: None,
+        start_on: None,
+        assignee: None,
+        privacy_setting: None,
+        public: None,
+        status_type: None,
+        title: None,
+        custom_fields: None,
+        source_gid: None,
+        include: None,
+        opt_fields: None,
+    });
+
+    let result = server.asana_create(params).await.unwrap();
+    let text = get_response_text(&result);
+
+    assert!(text.contains("<strong>Bold</strong>"));
+}
+
 // ============================================================================
 // Update Tests
 // ============================================================================
@@ -2061,6 +2116,50 @@ async fn test_update_comment() {
     let text = get_response_text(&result);
 
     assert!(text.contains("Updated comment text"));
+}
+
+#[tokio::test]
+async fn test_update_comment_html() {
+    let mock_server = MockServer::start().await;
+
+    Mock::given(method("PUT"))
+        .and(path("/stories/story123"))
+        .and(body_json(
+            serde_json::json!({"data": {"html_text": "<body><em>Italic</em></body>"}}),
+        ))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "data": {"gid": "story123", "html_text": "<body><em>Italic</em></body>"}
+        })))
+        .mount(&mock_server)
+        .await;
+
+    let server = test_server(&mock_server.uri());
+    let params = Parameters(UpdateParams {
+        resource_type: UpdateResourceType::Comment,
+        gid: "story123".to_string(),
+        text: None,
+        html_text: Some("<body><em>Italic</em></body>".to_string()),
+        name: None,
+        notes: None,
+        html_notes: None,
+        completed: None,
+        due_on: None,
+        start_on: None,
+        assignee: None,
+        color: None,
+        archived: None,
+        privacy_setting: None,
+        public: None,
+        title: None,
+        status_type: None,
+        custom_fields: None,
+        opt_fields: None,
+    });
+
+    let result = server.asana_update(params).await.unwrap();
+    let text = get_response_text(&result);
+
+    assert!(text.contains("<em>Italic</em>"));
 }
 
 #[tokio::test]
