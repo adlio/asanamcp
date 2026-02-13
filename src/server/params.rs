@@ -586,34 +586,45 @@ pub enum LinkAction {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum RelationshipType {
-    /// Task <-> Project membership
+    /// Add/remove a task from a project. target_gid=task GID, item_gid=project GID.
+    /// Optional section_gid to place task in a specific section.
     #[serde(rename = "task_project")]
     TaskProject,
-    /// Task <-> Tag association
+    /// Add/remove a tag from a task. target_gid=task GID, item_gid=tag GID.
     #[serde(rename = "task_tag")]
     TaskTag,
-    /// Task parent-child relationship
+    /// Set/clear a task's parent (make subtask). target_gid=child task GID,
+    /// item_gid=parent task GID. action=remove clears the parent (item_gid not needed).
     #[serde(rename = "task_parent")]
     TaskParent,
-    /// Task dependency (blocking) relationship
+    /// Mark task(s) as blocking this task. target_gid=blocked task GID,
+    /// item_gid(s)=blocking task GID(s). Supports bulk via item_gids.
     #[serde(rename = "task_dependency")]
     TaskDependency,
-    /// Task dependent (blocked by) relationship
+    /// Mark task(s) as depending on this task. target_gid=blocking task GID,
+    /// item_gid(s)=dependent task GID(s). Supports bulk via item_gids.
     #[serde(rename = "task_dependent")]
     TaskDependent,
-    /// Task follower
+    /// Add/remove user(s) as followers of a task (receive notifications).
+    /// target_gid=task GID, item_gid(s)=user GID(s).
     #[serde(rename = "task_follower")]
     TaskFollower,
-    /// Portfolio <-> Project/Portfolio item
+    /// Add/remove a project from a portfolio. target_gid=portfolio GID,
+    /// item_gid=project GID. Supports insert_before/insert_after for ordering.
     #[serde(rename = "portfolio_item")]
     PortfolioItem,
-    /// Portfolio member
+    /// Add/remove a user or team as a member of a portfolio.
+    /// target_gid=portfolio GID, item_gid(s)=user or team GID(s).
+    /// Optional access_level: admin, editor, or viewer.
     #[serde(rename = "portfolio_member")]
     PortfolioMember,
-    /// Project member
+    /// Add/remove a user or team as a member of a project.
+    /// target_gid=project GID, item_gid(s)=user or team GID(s).
+    /// Optional access_level: admin, editor, commenter, or viewer.
     #[serde(rename = "project_member")]
     ProjectMember,
-    /// Project follower
+    /// Add/remove user(s) as followers of a project (receive notifications).
+    /// target_gid=project GID, item_gid(s)=user GID(s). User GIDs only.
     #[serde(rename = "project_follower")]
     ProjectFollower,
 }
@@ -642,4 +653,8 @@ pub struct LinkParams {
     /// Insert after this GID (for ordering)
     #[serde(default)]
     pub insert_after: Option<String>,
+    /// Access level for the member (e.g. "admin", "editor", "commenter", "viewer").
+    /// Supported for portfolio_member and project_member relationships.
+    #[serde(default)]
+    pub access_level: Option<String>,
 }

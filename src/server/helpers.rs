@@ -269,6 +269,7 @@ mod tests {
             section_gid: None,
             insert_before: None,
             insert_after: None,
+            access_level: None,
         };
 
         let result = get_item_gids(&params).unwrap();
@@ -286,6 +287,7 @@ mod tests {
             section_gid: None,
             insert_before: None,
             insert_after: None,
+            access_level: None,
         };
 
         let result = get_item_gids(&params).unwrap();
@@ -303,6 +305,7 @@ mod tests {
             section_gid: None,
             insert_before: None,
             insert_after: None,
+            access_level: None,
         };
 
         let result = get_item_gids(&params);
@@ -321,6 +324,7 @@ mod tests {
             section_gid: None,
             insert_before: None,
             insert_after: None,
+            access_level: None,
         };
 
         let result = get_item_gids(&params);

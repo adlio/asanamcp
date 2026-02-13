@@ -1140,6 +1140,7 @@ async fn test_link_task_to_project() {
         section_gid: None,
         insert_before: None,
         insert_after: None,
+        access_level: None,
     });
 
     let result = server.asana_link(params).await.unwrap();
@@ -1174,6 +1175,7 @@ async fn test_link_add_dependencies() {
         section_gid: None,
         insert_before: None,
         insert_after: None,
+        access_level: None,
     });
 
     let result = server.asana_link(params).await.unwrap();
@@ -1196,6 +1198,7 @@ async fn test_link_requires_item_gid() {
         section_gid: None,
         insert_before: None,
         insert_after: None,
+        access_level: None,
     });
 
     let result = server.asana_link(params).await;
@@ -2411,6 +2414,7 @@ async fn test_link_remove_task_from_project() {
         section_gid: None,
         insert_before: None,
         insert_after: None,
+        access_level: None,
     });
 
     let result = server.asana_link(params).await.unwrap();
@@ -2439,6 +2443,7 @@ async fn test_link_add_task_tag() {
         section_gid: None,
         insert_before: None,
         insert_after: None,
+        access_level: None,
     });
 
     let result = server.asana_link(params).await.unwrap();
@@ -2467,6 +2472,7 @@ async fn test_link_remove_task_tag() {
         section_gid: None,
         insert_before: None,
         insert_after: None,
+        access_level: None,
     });
 
     let result = server.asana_link(params).await.unwrap();
@@ -2497,6 +2503,7 @@ async fn test_link_set_task_parent() {
         section_gid: None,
         insert_before: None,
         insert_after: None,
+        access_level: None,
     });
 
     let result = server.asana_link(params).await.unwrap();
@@ -2525,6 +2532,7 @@ async fn test_link_add_dependents() {
         section_gid: None,
         insert_before: None,
         insert_after: None,
+        access_level: None,
     });
 
     let result = server.asana_link(params).await.unwrap();
@@ -2553,6 +2561,7 @@ async fn test_link_add_task_follower() {
         section_gid: None,
         insert_before: None,
         insert_after: None,
+        access_level: None,
     });
 
     let result = server.asana_link(params).await.unwrap();
@@ -2581,6 +2590,7 @@ async fn test_link_add_portfolio_item() {
         section_gid: None,
         insert_before: None,
         insert_after: None,
+        access_level: None,
     });
 
     let result = server.asana_link(params).await.unwrap();
@@ -2609,6 +2619,7 @@ async fn test_link_remove_portfolio_item() {
         section_gid: None,
         insert_before: None,
         insert_after: None,
+        access_level: None,
     });
 
     let result = server.asana_link(params).await.unwrap();
@@ -2622,8 +2633,16 @@ async fn test_link_add_portfolio_member() {
     let mock_server = MockServer::start().await;
 
     Mock::given(method("POST"))
-        .and(path("/portfolios/port123/addMembers"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({"data": {}})))
+        .and(path("/memberships"))
+        .and(body_json(serde_json::json!({
+            "data": {
+                "member": "user456",
+                "parent": "port123"
+            }
+        })))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "data": {"gid": "membership789", "resource_type": "membership"}
+        })))
         .mount(&mock_server)
         .await;
 
@@ -2637,6 +2656,7 @@ async fn test_link_add_portfolio_member() {
         section_gid: None,
         insert_before: None,
         insert_after: None,
+        access_level: None,
     });
 
     let result = server.asana_link(params).await.unwrap();
@@ -2650,8 +2670,16 @@ async fn test_link_add_project_member() {
     let mock_server = MockServer::start().await;
 
     Mock::given(method("POST"))
-        .and(path("/projects/proj123/addMembers"))
-        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({"data": {}})))
+        .and(path("/memberships"))
+        .and(body_json(serde_json::json!({
+            "data": {
+                "member": "user456",
+                "parent": "proj123"
+            }
+        })))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "data": {"gid": "membership789", "resource_type": "membership"}
+        })))
         .mount(&mock_server)
         .await;
 
@@ -2665,6 +2693,197 @@ async fn test_link_add_project_member() {
         section_gid: None,
         insert_before: None,
         insert_after: None,
+        access_level: None,
+    });
+
+    let result = server.asana_link(params).await.unwrap();
+    let text = get_response_text(&result);
+
+    assert!(text.contains("Members added to project"));
+}
+
+#[tokio::test]
+async fn test_link_add_team_as_portfolio_member() {
+    let mock_server = MockServer::start().await;
+
+    Mock::given(method("POST"))
+        .and(path("/memberships"))
+        .and(body_json(serde_json::json!({
+            "data": {
+                "member": "team999",
+                "parent": "port123"
+            }
+        })))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "data": {"gid": "membership790", "resource_type": "membership"}
+        })))
+        .mount(&mock_server)
+        .await;
+
+    let server = test_server(&mock_server.uri());
+    let params = Parameters(LinkParams {
+        action: LinkAction::Add,
+        relationship: RelationshipType::PortfolioMember,
+        target_gid: "port123".to_string(),
+        item_gid: Some("team999".to_string()),
+        item_gids: None,
+        section_gid: None,
+        insert_before: None,
+        insert_after: None,
+        access_level: None,
+    });
+
+    let result = server.asana_link(params).await.unwrap();
+    let text = get_response_text(&result);
+
+    assert!(text.contains("Members added to portfolio"));
+}
+
+#[tokio::test]
+async fn test_link_add_team_as_project_member() {
+    let mock_server = MockServer::start().await;
+
+    Mock::given(method("POST"))
+        .and(path("/memberships"))
+        .and(body_json(serde_json::json!({
+            "data": {
+                "member": "team999",
+                "parent": "proj123"
+            }
+        })))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "data": {"gid": "membership791", "resource_type": "membership"}
+        })))
+        .mount(&mock_server)
+        .await;
+
+    let server = test_server(&mock_server.uri());
+    let params = Parameters(LinkParams {
+        action: LinkAction::Add,
+        relationship: RelationshipType::ProjectMember,
+        target_gid: "proj123".to_string(),
+        item_gid: Some("team999".to_string()),
+        item_gids: None,
+        section_gid: None,
+        insert_before: None,
+        insert_after: None,
+        access_level: None,
+    });
+
+    let result = server.asana_link(params).await.unwrap();
+    let text = get_response_text(&result);
+
+    assert!(text.contains("Members added to project"));
+}
+
+#[tokio::test]
+async fn test_link_remove_portfolio_member() {
+    let mock_server = MockServer::start().await;
+
+    Mock::given(method("GET"))
+        .and(path("/memberships"))
+        .and(query_param("parent", "port123"))
+        .and(query_param("member", "user456"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "data": [{"gid": "membership789", "resource_type": "membership"}]
+        })))
+        .mount(&mock_server)
+        .await;
+
+    Mock::given(method("DELETE"))
+        .and(path("/memberships/membership789"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({"data": {}})))
+        .mount(&mock_server)
+        .await;
+
+    let server = test_server(&mock_server.uri());
+    let params = Parameters(LinkParams {
+        action: LinkAction::Remove,
+        relationship: RelationshipType::PortfolioMember,
+        target_gid: "port123".to_string(),
+        item_gid: Some("user456".to_string()),
+        item_gids: None,
+        section_gid: None,
+        insert_before: None,
+        insert_after: None,
+        access_level: None,
+    });
+
+    let result = server.asana_link(params).await.unwrap();
+    let text = get_response_text(&result);
+
+    assert!(text.contains("Members removed from portfolio"));
+}
+
+#[tokio::test]
+async fn test_link_remove_project_member() {
+    let mock_server = MockServer::start().await;
+
+    Mock::given(method("GET"))
+        .and(path("/memberships"))
+        .and(query_param("parent", "proj123"))
+        .and(query_param("member", "user456"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "data": [{"gid": "membership789", "resource_type": "membership"}]
+        })))
+        .mount(&mock_server)
+        .await;
+
+    Mock::given(method("DELETE"))
+        .and(path("/memberships/membership789"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({"data": {}})))
+        .mount(&mock_server)
+        .await;
+
+    let server = test_server(&mock_server.uri());
+    let params = Parameters(LinkParams {
+        action: LinkAction::Remove,
+        relationship: RelationshipType::ProjectMember,
+        target_gid: "proj123".to_string(),
+        item_gid: Some("user456".to_string()),
+        item_gids: None,
+        section_gid: None,
+        insert_before: None,
+        insert_after: None,
+        access_level: None,
+    });
+
+    let result = server.asana_link(params).await.unwrap();
+    let text = get_response_text(&result);
+
+    assert!(text.contains("Members removed from project"));
+}
+
+#[tokio::test]
+async fn test_link_add_project_member_with_access_level() {
+    let mock_server = MockServer::start().await;
+
+    Mock::given(method("POST"))
+        .and(path("/memberships"))
+        .and(body_json(serde_json::json!({
+            "data": {
+                "member": "user456",
+                "parent": "proj123",
+                "access_level": "commenter"
+            }
+        })))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "data": {"gid": "membership792", "resource_type": "membership"}
+        })))
+        .mount(&mock_server)
+        .await;
+
+    let server = test_server(&mock_server.uri());
+    let params = Parameters(LinkParams {
+        action: LinkAction::Add,
+        relationship: RelationshipType::ProjectMember,
+        target_gid: "proj123".to_string(),
+        item_gid: Some("user456".to_string()),
+        item_gids: None,
+        section_gid: None,
+        insert_before: None,
+        insert_after: None,
+        access_level: Some("commenter".to_string()),
     });
 
     let result = server.asana_link(params).await.unwrap();
@@ -2693,6 +2912,7 @@ async fn test_link_add_project_follower() {
         section_gid: None,
         insert_before: None,
         insert_after: None,
+        access_level: None,
     });
 
     let result = server.asana_link(params).await.unwrap();

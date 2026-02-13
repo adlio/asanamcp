@@ -1213,20 +1213,30 @@ impl AsanaServer {
     /// Manage relationships between Asana resources.
     #[tool(description = "Add or remove relationships between Asana resources.\n\
             Use action='add' or action='remove', specify relationship type, target_gid, and item_gid(s).\n\
+            Use item_gid for single item, item_gids for bulk operations.\n\
             \n\
-            Relationships (target_gid -> item_gid):\n\
-            - task_project: task -> project (add/remove task from project)\n\
-            - task_tag: task -> tag\n\
-            - task_parent: task -> parent_task (set parent to make subtask)\n\
-            - task_dependency: task -> blocking_task(s)\n\
-            - task_dependent: task -> dependent_task(s)\n\
-            - task_follower: task -> user(s)\n\
-            - portfolio_item: portfolio -> project\n\
-            - portfolio_member: portfolio -> user(s)\n\
-            - project_member: project -> user(s)\n\
-            - project_follower: project -> user(s)\n\
-            \n\
-            Use item_gid for single item, item_gids for bulk operations.")]
+            Relationships:\n\
+            - task_project: Add/remove a task from a project. target_gid=task GID, item_gid=project GID. \
+            Optional section_gid to place task in a specific section.\n\
+            - task_tag: Add/remove a tag from a task. target_gid=task GID, item_gid=tag GID.\n\
+            - task_parent: Set/clear a task's parent (make subtask). target_gid=child task GID, \
+            item_gid=parent task GID. action=remove clears the parent (item_gid not needed).\n\
+            - task_dependency: Mark task(s) as blocking this task. target_gid=blocked task GID, \
+            item_gid(s)=blocking task GID(s). Supports bulk via item_gids.\n\
+            - task_dependent: Mark task(s) as depending on this task. target_gid=blocking task GID, \
+            item_gid(s)=dependent task GID(s). Supports bulk via item_gids.\n\
+            - task_follower: Add/remove user(s) as followers of a task (receive notifications). \
+            target_gid=task GID, item_gid(s)=user GID(s).\n\
+            - portfolio_item: Add/remove a project from a portfolio. target_gid=portfolio GID, \
+            item_gid=project GID. Supports insert_before/insert_after for ordering.\n\
+            - portfolio_member: Add/remove a user or team as a member of a portfolio. \
+            target_gid=portfolio GID, item_gid(s)=user or team GID(s). \
+            Optional access_level: admin, editor, or viewer.\n\
+            - project_member: Add/remove a user or team as a member of a project. \
+            target_gid=project GID, item_gid(s)=user or team GID(s). \
+            Optional access_level: admin, editor, commenter, or viewer.\n\
+            - project_follower: Add/remove user(s) as followers of a project (receive notifications). \
+            target_gid=project GID, item_gid(s)=user GID(s). User GIDs only.")]
     async fn asana_link(&self, params: Parameters<LinkParams>) -> Result<CallToolResult, McpError> {
         let p = params.0;
 
@@ -1404,47 +1414,55 @@ impl AsanaServer {
                 success_response("Item removed from portfolio")
             }
 
-            // Portfolio-Member
-            (LinkAction::Add, RelationshipType::PortfolioMember) => {
+            // Portfolio-Member / Project-Member (via /memberships API)
+            (
+                LinkAction::Add,
+                RelationshipType::PortfolioMember | RelationshipType::ProjectMember,
+            ) => {
                 let gids = get_item_gids(&p)?;
-                let body = serde_json::json!({"data": {"members": gids}});
-                self.client
-                    .post_empty(&format!("/portfolios/{}/addMembers", p.target_gid), &body)
-                    .await
-                    .map_err(|e| error_to_mcp("Failed to add portfolio members", e))?;
-                success_response("Members added to portfolio")
+                for gid in &gids {
+                    let mut data = serde_json::Map::new();
+                    data.insert("member".to_string(), serde_json::json!(gid));
+                    data.insert("parent".to_string(), serde_json::json!(p.target_gid));
+                    if let Some(ref level) = p.access_level {
+                        data.insert("access_level".to_string(), serde_json::json!(level));
+                    }
+                    let body = serde_json::json!({"data": data});
+                    self.client
+                        .post::<Resource, _>("/memberships", &body)
+                        .await
+                        .map_err(|e| error_to_mcp("Failed to create membership", e))?;
+                }
+                let parent_type = match p.relationship {
+                    RelationshipType::PortfolioMember => "portfolio",
+                    _ => "project",
+                };
+                success_response(&format!("Members added to {}", parent_type))
             }
-            (LinkAction::Remove, RelationshipType::PortfolioMember) => {
+            (
+                LinkAction::Remove,
+                RelationshipType::PortfolioMember | RelationshipType::ProjectMember,
+            ) => {
                 let gids = get_item_gids(&p)?;
-                let body = serde_json::json!({"data": {"members": gids}});
-                self.client
-                    .post_empty(
-                        &format!("/portfolios/{}/removeMembers", p.target_gid),
-                        &body,
-                    )
-                    .await
-                    .map_err(|e| error_to_mcp("Failed to remove portfolio members", e))?;
-                success_response("Members removed from portfolio")
-            }
-
-            // Project-Member
-            (LinkAction::Add, RelationshipType::ProjectMember) => {
-                let gids = get_item_gids(&p)?;
-                let body = serde_json::json!({"data": {"members": gids.join(",")}});
-                self.client
-                    .post_empty(&format!("/projects/{}/addMembers", p.target_gid), &body)
-                    .await
-                    .map_err(|e| error_to_mcp("Failed to add project members", e))?;
-                success_response("Members added to project")
-            }
-            (LinkAction::Remove, RelationshipType::ProjectMember) => {
-                let gids = get_item_gids(&p)?;
-                let body = serde_json::json!({"data": {"members": gids.join(",")}});
-                self.client
-                    .post_empty(&format!("/projects/{}/removeMembers", p.target_gid), &body)
-                    .await
-                    .map_err(|e| error_to_mcp("Failed to remove project members", e))?;
-                success_response("Members removed from project")
+                for gid in &gids {
+                    let query = [("parent", p.target_gid.as_str()), ("member", gid.as_str())];
+                    let memberships: Vec<Resource> = self
+                        .client
+                        .get_all("/memberships", &query)
+                        .await
+                        .map_err(|e| error_to_mcp("Failed to look up membership", e))?;
+                    for membership in &memberships {
+                        self.client
+                            .delete(&format!("/memberships/{}", membership.gid))
+                            .await
+                            .map_err(|e| error_to_mcp("Failed to delete membership", e))?;
+                    }
+                }
+                let parent_type = match p.relationship {
+                    RelationshipType::PortfolioMember => "portfolio",
+                    _ => "project",
+                };
+                success_response(&format!("Members removed from {}", parent_type))
             }
 
             // Project-Follower
