@@ -499,6 +499,9 @@ pub struct UpdateParams {
     /// New status type (for status_update): "on_track", "at_risk", "off_track", etc.
     #[serde(default)]
     pub status_type: Option<String>,
+    /// New owner (user GID) for project
+    #[serde(default)]
+    pub owner: Option<String>,
     /// Updated custom field values
     #[serde(default)]
     pub custom_fields: Option<HashMap<String, serde_json::Value>>,

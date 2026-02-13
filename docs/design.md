@@ -212,6 +212,7 @@ struct UpdateParams {
     color: Option<String>,
     archived: Option<bool>,
     privacy_setting: Option<String>,
+    owner: Option<String>,
 
     // Custom fields (generic map)
     custom_fields: Option<HashMap<String, String>>,
@@ -241,7 +242,7 @@ enum UpdateResourceType {
 **What CAN be updated (per Asana API):**
 
 - **Task**: name, notes, html_notes, completed, due_on, start_on, assignee, custom_fields
-- **Project**: name, notes, html_notes, color, archived, privacy_setting, due_on, start_on, custom_fields
+- **Project**: name, notes, html_notes, color, archived, privacy_setting, due_on, start_on, owner, custom_fields
 - **Portfolio**: name, color, archived, privacy_setting, due_on, start_on, custom_fields
 - **Section**: name
 - **Tag**: name, color, notes

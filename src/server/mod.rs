@@ -955,7 +955,7 @@ impl AsanaServer {
             \n\
             Resource types and their fields:\n\
             - task: name, assignee, due_on, start_on, completed, notes, html_notes, custom_fields\n\
-            - project: name, notes, html_notes, color, archived, public, privacy_setting\n\
+            - project: name, notes, html_notes, color, archived, public, privacy_setting, owner, custom_fields\n\
             - portfolio: name, color, public\n\
             - section: name (required)\n\
             - tag: name, color, notes\n\
@@ -1031,6 +1031,9 @@ impl AsanaServer {
                 }
                 if let Some(privacy) = p.privacy_setting {
                     data.insert("privacy_setting".to_string(), serde_json::json!(privacy));
+                }
+                if let Some(owner) = p.owner {
+                    data.insert("owner".to_string(), serde_json::json!(owner));
                 }
                 if let Some(cf) = p.custom_fields {
                     data.insert("custom_fields".to_string(), serde_json::json!(cf));

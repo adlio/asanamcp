@@ -7,13 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.2] - 2026-02-12
+
 ### Added
 
+- `owner` as a settable field on project updates via `asana_update`
 - `--version` / `-V` flag with build metadata (git SHA, dirty state, build timestamp)
+- Asana OpenAPI spec reference documentation in AGENTS.md
 
 ### Fixed
 
 - Obsolete sections in README.md
+- `custom_fields` was missing from project field list in `asana_update` tool description
 
 ## [0.3.1] - 2026-02-09
 

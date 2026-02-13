@@ -1070,6 +1070,7 @@ async fn test_update_task_success() {
         text: None,
         title: None,
         status_type: None,
+        owner: None,
         custom_fields: None,
         opt_fields: None,
     });
@@ -1104,6 +1105,7 @@ async fn test_update_section_requires_name() {
         text: None,
         title: None,
         status_type: None,
+        owner: None,
         custom_fields: None,
         opt_fields: None,
     });
@@ -2166,6 +2168,7 @@ async fn test_update_project() {
         text: None,
         title: None,
         status_type: None,
+        owner: None,
         custom_fields: None,
         opt_fields: None,
     });
@@ -2207,6 +2210,7 @@ async fn test_update_portfolio() {
         text: None,
         title: None,
         status_type: None,
+        owner: None,
         custom_fields: None,
         opt_fields: None,
     });
@@ -2248,6 +2252,7 @@ async fn test_update_tag() {
         text: None,
         title: None,
         status_type: None,
+        owner: None,
         custom_fields: None,
         opt_fields: None,
     });
@@ -2289,6 +2294,7 @@ async fn test_update_comment() {
         public: None,
         title: None,
         status_type: None,
+        owner: None,
         custom_fields: None,
         opt_fields: None,
     });
@@ -2333,6 +2339,7 @@ async fn test_update_comment_html() {
         public: None,
         title: None,
         status_type: None,
+        owner: None,
         custom_fields: None,
         opt_fields: None,
     });
@@ -2379,6 +2386,7 @@ async fn test_update_status_update() {
         archived: None,
         privacy_setting: None,
         public: None,
+        owner: None,
         custom_fields: None,
         opt_fields: None,
     });
@@ -3830,6 +3838,7 @@ async fn test_update_project_brief() {
         public: None,
         title: None,
         status_type: None,
+        owner: None,
         custom_fields: None,
         opt_fields: None,
     });

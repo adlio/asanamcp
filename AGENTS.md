@@ -80,6 +80,24 @@ asanamcp --schema asana_get    # Dump specific tool schema
 2. Add match arms for both `Add` and `Remove` actions in `asana_link`
 3. Add tests for both actions
 
+## Asana API Reference
+
+The file `docs/asana_oas.yaml` is a local copy of Asana's OpenAPI 3.0 specification (~2.7MB). Use
+it to verify which fields the Asana API actually supports for a given endpoint before adding or
+removing parameters. Because the file is large, search it with targeted Grep queries rather than
+reading it whole. For example:
+
+```bash
+# Find the schema definition for a resource
+Grep pattern="PortfolioBase:" path="docs/asana_oas.yaml"
+
+# Check if a specific field exists on a resource
+Grep pattern="owner" path="docs/asana_oas.yaml" context=5
+
+# Find the request body for an endpoint
+Grep pattern="updatePortfolio" path="docs/asana_oas.yaml" context=10
+```
+
 ## Code Style
 
 - Run `make ci` before committing
